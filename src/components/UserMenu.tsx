@@ -28,9 +28,20 @@ export default function UserMenu({ user }: { user: any }) {
     <div className="relative inline-block text-left" ref={menuRef}>
       <button
         onClick={() => setOpen((prev) => !prev)}
-        className="rounded-full border border-zinc-200 bg-white px-4 py-1.5 text-sm font-medium shadow-sm hover:bg-zinc-50 active:scale-98 transition-all cursor-pointer"
+        className="rounded-full border border-zinc-200 bg-white p-1 shadow-sm hover:bg-zinc-50 transition-all cursor-pointer flex items-center"
+        title={user.fullName}
       >
-        {user.fullName}
+        {user.avatarUrl ? (
+          <img
+            src={user.avatarUrl}
+            alt={user.fullName}
+            className="w-8 h-8 rounded-full object-cover"
+          />
+        ) : (
+          <div className="w-8 h-8 rounded-full bg-zinc-300 flex items-center justify-center text-xs font-semibold text-zinc-700">
+            {user.fullName.charAt(0).toUpperCase()}
+          </div>
+        )}
       </button>
 
       <div

@@ -16,24 +16,27 @@ export default function Header() {
           </Link>
         </div>
         <div className="flex items-center gap-4">
-          <Link href="/dashboard" className="text-sm">
+          <Link href="/dashboard" className="px-4 py-2 rounded-md bg-zinc-100 text-sm font-medium hover:bg-zinc-200 transition-colors">
             Dashboard
           </Link>
+          
           {loading ? (
             <span className="text-sm text-zinc-500">Loading...</span>
           ) : !user ? (
-            <Link href="/auth" className="text-sm text-primary">
+            <Link href="/auth" className="px-4 py-2 rounded-md bg-primary text-white text-sm font-medium hover:bg-primary/90 transition-colors">
               Login / Register
             </Link>
           ) : (
             <div className="flex items-center gap-4">
-              <span className="text-sm font-medium">Hi, {user.fullName}</span>
               {user.role === "ADMIN" && (
                 <Link href="/admin/users" className="rounded-md bg-primary px-3 py-1 text-sm text-white">
                   Admin
                 </Link>
               )}
-              <UserMenu user={user} />
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-zinc-700">{user.fullName}</span>
+                <UserMenu user={user} />
+              </div>
             </div>
           )}
         </div>
