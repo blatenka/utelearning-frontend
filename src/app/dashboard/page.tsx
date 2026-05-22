@@ -28,7 +28,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="mt-6">
-        <p>Welcome to the dashboard. Courses are not yet available.</p>
+        <p>Welcome to the UT-Elearning. Courses are not yet available.</p>
 
         {user?.role?.toUpperCase() === "ADMIN" && (
           <p className="mt-4">

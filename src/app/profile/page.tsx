@@ -1,27 +1,42 @@
 "use client";
-import React, { useEffect, useState } from "react";
+
+import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import api from "@/lib/api";
 import { useAuth } from "@/providers/AuthProvider";
 
 const GENDERS = ["MALE", "FEMALE", "OTHER", "PREFER_NOT_TO_SAY"];
 
-export default function ProfilePage() 
-{
+export default function ProfilePage() {
   const router = useRouter();
   const { user, loading: authLoading, refreshMe } = useAuth();
+
   const [profile, setProfile] = useState<any>(null);
   const [editMode, setEditMode] = useState(false);
-  
-  // Edit form state
+
   const [fullName, setFullName] = useState("");
   const [gender, setGender] = useState("");
   const [dateOfBirth, setDateOfBirth] = useState("");
-  
+
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(true);
+
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  const avatarPreviewUrl = useMemo(() => {
+    if (!avatarFile) return null;
+    return URL.createObjectURL(avatarFile);
+  }, [avatarFile]);
+
+  useEffect(() => {
+    return () => {
+      if (avatarPreviewUrl) {
+        URL.revokeObjectURL(avatarPreviewUrl);
+      }
+    };
+  }, [avatarPreviewUrl]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -31,45 +46,127 @@ export default function ProfilePage()
       return;
     }
 
-    api
-      .get("/users/me")
-      .then((res) => {
-        setProfile(res.data.data);
-        setFullName(res.data.data.fullName || "");
-        setGender(res.data.data.gender || "");
-        setDateOfBirth(res.data.data.dateOfBirth || "");
-      })
-      .catch(() => setError("Unable to load profile"));
+    async function loadProfile() {
+      try {
+        setProfileLoading(true);
+        setError(null);
+
+        const res = await api.get("/users/me");
+        const data = res.data.data;
+
+        setProfile(data);
+        setFullName(data.fullName || "");
+        setGender(data.gender || "");
+        setDateOfBirth(formatDateForInput(data.dateOfBirth));
+      } catch (err) {
+        setError("Unable to load profile");
+      } finally {
+        setProfileLoading(false);
+      }
+    }
+
+    loadProfile();
   }, [router, user, authLoading]);
+
+  function formatDateForInput(date?: string) {
+    if (!date) return "";
+
+    try {
+      return new Date(date).toISOString().split("T")[0];
+    } catch {
+      return "";
+    }
+  }
+
+  function getErrorMessage(err: any, fallback: string) {
+    const message = err?.response?.data?.message;
+
+    if (Array.isArray(message)) {
+      return message.join(", ");
+    }
+
+    if (typeof message === "string") {
+      return message;
+    }
+
+    return err?.message || fallback;
+  }
+
+  function handleCancelEdit() {
+    setEditMode(false);
+    setError(null);
+    setSuccess(null);
+
+    setFullName(profile?.fullName || "");
+    setGender(profile?.gender || "");
+    setDateOfBirth(formatDateForInput(profile?.dateOfBirth));
+  }
+
+  function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+
+    setError(null);
+    setSuccess(null);
+
+    if (!file) {
+      setAvatarFile(null);
+      return;
+    }
+
+    if (!file.type.startsWith("image/")) {
+      setError("Please select a valid image file.");
+      return;
+    }
+
+    const maxSize = 5 * 1024 * 1024;
+
+    if (file.size > maxSize) {
+      setError("Image size must be less than 5MB.");
+      return;
+    }
+
+    setAvatarFile(file);
+  }
 
   async function handleProfileUpdate(e: React.FormEvent) {
     e.preventDefault();
+
+    if (!fullName.trim()) {
+      setError("Full name is required.");
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setSuccess(null);
-    
+
     try {
-      const updateData: any = { fullName };
-      
-      if (gender) updateData.gender = gender;
-      if (dateOfBirth) {
-        // Convert YYYY-MM-DD to ISO-8601 format with time (YYYY-MM-DDTHH:mm:ss.sssZ)
-        const dateObj = new Date(dateOfBirth);
-        updateData.dateOfBirth = dateObj.toISOString();
+      const updateData: any = {
+        fullName: fullName.trim(),
+      };
+
+      if (gender) {
+        updateData.gender = gender;
       }
-      
+
+      if (dateOfBirth) {
+        updateData.dateOfBirth = new Date(dateOfBirth).toISOString();
+      }
+
       await api.patch("/users/me", updateData);
       await refreshMe();
-      setProfile((prev: any) => ({ 
-        ...prev, 
-        fullName, 
-        gender, 
-        dateOfBirth 
+
+      setProfile((prev: any) => ({
+        ...prev,
+        fullName: fullName.trim(),
+        gender,
+        dateOfBirth,
       }));
+
       setSuccess("Profile updated successfully!");
       setEditMode(false);
     } catch (err: any) {
-      setError(err?.response?.data?.message || "Update failed");
+      setError(getErrorMessage(err, "Update failed"));
     } finally {
       setLoading(false);
     }
@@ -77,13 +174,14 @@ export default function ProfilePage()
 
   async function handleAvatarUpload() {
     if (!avatarFile || !user) {
-      setError("Select an image");
+      setError("Please select an image first.");
       return;
     }
+
     setLoading(true);
     setError(null);
     setSuccess(null);
-    
+
     try {
       const sigRes = await api.post("/upload/signature", {
         folder: `users/${user.id}/avatars`,
@@ -91,7 +189,9 @@ export default function ProfilePage()
         publicId: `user_${user.id}`,
       });
 
-      const { signature, timestamp, cloudName, apiKey, uploadPreset } = sigRes.data.data;
+      const { signature, timestamp, cloudName, apiKey, uploadPreset } =
+        sigRes.data.data;
+
       const fd = new FormData();
       fd.append("file", avatarFile);
       fd.append("api_key", apiKey);
@@ -102,13 +202,32 @@ export default function ProfilePage()
       fd.append("public_id", `user_${user.id}`);
 
       const cloudUrl = `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`;
-      const uploadRes = await fetch(cloudUrl, { method: "POST", body: fd });
+
+      const uploadRes = await fetch(cloudUrl, {
+        method: "POST",
+        body: fd,
+      });
+
       const uploadJson = await uploadRes.json();
+
+      if (!uploadRes.ok) {
+        throw new Error(uploadJson?.error?.message || "Cloudinary upload failed");
+      }
+
       const avatarUrl = uploadJson.secure_url;
+
+      if (!avatarUrl) {
+        throw new Error("Cloudinary did not return avatar URL");
+      }
 
       await api.patch("/users/me", { avatarUrl });
       await refreshMe();
-      setProfile((prev: any) => ({ ...prev, avatarUrl }));
+
+      setProfile((prev: any) => ({
+        ...prev,
+        avatarUrl,
+      }));
+
       setAvatarFile(null);
       setSuccess("Avatar updated successfully!");
     } catch (err: any) {
@@ -119,177 +238,304 @@ export default function ProfilePage()
     }
   }
 
-  if (authLoading) {
+  if (authLoading || profileLoading) {
     return (
-      <div className="flex items-center justify-center p-6 text-zinc-500">
-        Loading profile...
-      </div>
+      <main className="min-h-screen bg-zinc-50 px-4 py-10">
+        <div className="mx-auto max-w-5xl">
+          <div className="rounded-3xl border border-zinc-200 bg-white p-8 shadow-sm">
+            <div className="animate-pulse space-y-6">
+              <div className="h-8 w-48 rounded bg-zinc-200" />
+              <div className="h-28 rounded-2xl bg-zinc-100" />
+              <div className="h-64 rounded-2xl bg-zinc-100" />
+            </div>
+          </div>
+        </div>
+      </main>
     );
   }
 
   if (!user) return null;
 
   return (
-    <div className="max-w-2xl mx-auto p-6 bg-white rounded-lg shadow-md">
-      <h1 className="text-3xl font-bold mb-8">My Profile</h1>
-
-      {error && (
-        <div className="mb-4 p-3 bg-red-100 text-red-700 rounded">
-          {error}
+    <main className="min-h-screen bg-zinc-50 px-4 py-10">
+      <div className="mx-auto max-w-5xl">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold tracking-tight text-zinc-950">
+            My Profile
+          </h1>
+          <p className="mt-2 text-sm text-zinc-500">
+            Manage your personal information and account avatar.
+          </p>
         </div>
-      )}
-      
-      {success && (
-        <div className="mb-4 p-3 bg-green-100 text-green-700 rounded">
-          {success}
-        </div>
-      )}
 
-      {/* Avatar Section */}
-      <div className="mb-8 pb-8 border-b border-zinc-200">
-        <h2 className="text-xl font-semibold mb-4">Avatar</h2>
-        <div className="flex items-center gap-6">
-          {profile?.avatarUrl ? (
-            <img
-              src={profile.avatarUrl}
-              alt="Avatar"
-              className="w-24 h-24 rounded-full object-cover border-2 border-zinc-300"
-            />
-          ) : (
-            <div className="w-24 h-24 rounded-full bg-zinc-300 flex items-center justify-center text-zinc-600">
-              No Avatar
-            </div>
-          )}
-          <div className="flex flex-col gap-3">
-            <label className="inline-block">
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => setAvatarFile(e.target.files?.[0] || null)}
-                disabled={loading}
-                className="hidden"
-                id="avatar-file"
-              />
-              <span className="px-3 py-1.5 bg-zinc-100 text-zinc-700 text-xs font-medium rounded-md hover:bg-zinc-200 transition-colors cursor-pointer disabled:opacity-50 inline-block border border-zinc-200">
-                  Browse Files
-              </span>
-            </label>
-            <button
-              type="button"
-              onClick={handleAvatarUpload}
-              disabled={!avatarFile || loading}
-              className="px-3 py-1.5 bg-black text-white rounded hover:bg-blue-700 disabled:opacity-50"
-            >
-              {loading ? "Uploading..." : "Upload Avatar"}
-            </button>
+        {error && (
+          <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+            {error}
           </div>
-        </div>
-      </div>
-
-      {/* Profile Information Section */}
-      <div className="mb-8">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-semibold">Profile Information</h2>
-          <button
-            type="button"
-            onClick={() => setEditMode(!editMode)}
-            className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
-          >
-            {editMode ? "Cancel" : "Edit"}
-          </button>
-        </div>
-
-        {!editMode ? (
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-zinc-600">Full Name</label>
-              <p className="text-lg text-zinc-900">{profile?.fullName || "N/A"}</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-zinc-600">Email</label>
-              <p className="text-lg text-zinc-900">{profile?.email || "N/A"}</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-zinc-600">Gender</label>
-              <p className="text-lg text-zinc-900">{profile?.gender || "Not specified"}</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-zinc-600">Date of Birth</label>
-              <p className="text-lg text-zinc-900">
-                {profile?.dateOfBirth
-                  ? new Date(profile.dateOfBirth).toLocaleDateString("en-US", {
-                      year: "numeric",
-                      month: "long",
-                      day: "numeric",
-                    })
-                  : "Not specified"}
-              </p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-zinc-600">Role</label>
-              <p className="text-lg text-zinc-900">{profile?.role || "N/A"}</p>
-            </div>
-          </div>
-        ) : (
-          <form onSubmit={handleProfileUpdate} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 mb-1">
-                Full Name
-              </label>
-              <input
-                type="text"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                disabled={loading}
-                required
-                className="w-full border border-zinc-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 mb-1">
-                Gender
-              </label>
-              <select
-                value={gender}
-                onChange={(e) => setGender(e.target.value)}
-                disabled={loading}
-                className="w-full border border-zinc-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">Select Gender</option>
-                {GENDERS.map((g) => (
-                  <option key={g} value={g}>
-                    {g}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 mb-1">
-                Date of Birth (YYYY-MM-DD)
-              </label>
-              <input
-                type="date"
-                value={dateOfBirth}
-                onChange={(e) => setDateOfBirth(e.target.value)}
-                disabled={loading}
-                className="w-full border border-zinc-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            <div className="flex gap-3 pt-4">
-              <button
-                type="submit"
-                disabled={loading}
-                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
-              >
-                {loading ? "Saving..." : "Save Changes"}
-              </button>
-            </div>
-          </form>
         )}
+
+        {success && (
+          <div className="mb-5 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+            {success}
+          </div>
+        )}
+
+        <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
+          <section className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <div className="text-center">
+              <div className="mx-auto h-32 w-32 overflow-hidden rounded-full border-4 border-white bg-zinc-100 shadow-lg ring-1 ring-zinc-200">
+                {avatarPreviewUrl ? (
+                  <img
+                    src={avatarPreviewUrl}
+                    alt="Avatar preview"
+                    className="h-full w-full object-cover"
+                  />
+                ) : profile?.avatarUrl ? (
+                  <img
+                    src={profile.avatarUrl}
+                    alt="Avatar"
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center bg-zinc-100 text-sm font-medium text-zinc-400">
+                    No Avatar
+                  </div>
+                )}
+              </div>
+
+              <h2 className="mt-5 text-xl font-semibold text-zinc-950">
+                {profile?.fullName || "Unnamed User"}
+              </h2>
+
+              <p className="mt-1 text-sm text-zinc-500">
+                {profile?.email || "No email"}
+              </p>
+
+              <div className="mt-3 inline-flex rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700">
+                {profile?.role || "USER"}
+              </div>
+            </div>
+
+            <div className="mt-8 border-t border-zinc-200 pt-6">
+              <h3 className="text-sm font-semibold text-zinc-950">
+                Profile photo
+              </h3>
+
+              <p className="mt-1 text-sm leading-6 text-zinc-500">
+                Upload a clear image. JPG, PNG, or WEBP. Maximum size 5MB.
+              </p>
+
+              {avatarFile && (
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                  <p className="text-xs font-medium text-zinc-500">
+                    Selected image
+                  </p>
+                  <p className="mt-1 truncate text-sm font-semibold text-zinc-800">
+                    {avatarFile.name}
+                  </p>
+                </div>
+              )}
+
+              <div className="mt-5 grid gap-3">
+                <label
+                  htmlFor="avatar-file"
+                  className="flex h-11 cursor-pointer items-center justify-center rounded-xl border border-zinc-300 bg-white px-4 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
+                >
+                  Choose Image
+                </label>
+
+                <input
+                  id="avatar-file"
+                  type="file"
+                  accept="image/*"
+                  onChange={handleAvatarChange}
+                  disabled={loading}
+                  className="hidden"
+                />
+
+                {avatarFile && (
+                  <button
+                    type="button"
+                    onClick={() => setAvatarFile(null)}
+                    disabled={loading}
+                    className="h-11 rounded-xl border border-zinc-300 bg-white px-4 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    Remove Selected Image
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleAvatarUpload}
+                  disabled={!avatarFile || loading}
+                  className="h-11 rounded-xl bg-zinc-950 px-4 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {loading ? "Uploading..." : "Upload Avatar"}
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <div className="mb-6 flex flex-col gap-4 border-b border-zinc-200 pb-6 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-xl font-semibold text-zinc-950">
+                  Profile Information
+                </h2>
+                <p className="mt-1 text-sm text-zinc-500">
+                  Update your personal details here.
+                </p>
+              </div>
+
+              {!editMode ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setError(null);
+                    setSuccess(null);
+                    setEditMode(true);
+                  }}
+                  className="h-10 rounded-xl bg-zinc-950 px-5 text-sm font-semibold text-white transition hover:bg-zinc-800"
+                >
+                  Edit Profile
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleCancelEdit}
+                  disabled={loading}
+                  className="h-10 rounded-xl border border-zinc-300 bg-white px-5 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+
+            {!editMode ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <InfoItem label="Full Name" value={profile?.fullName || "N/A"} />
+                <InfoItem label="Email" value={profile?.email || "N/A"} />
+                <InfoItem
+                  label="Gender"
+                  value={profile?.gender || "Not specified"}
+                />
+                <InfoItem
+                  label="Date of Birth"
+                  value={
+                    profile?.dateOfBirth
+                      ? new Date(profile.dateOfBirth).toLocaleDateString(
+                          "en-US",
+                          {
+                            year: "numeric",
+                            month: "long",
+                            day: "numeric",
+                          },
+                        )
+                      : "Not specified"
+                  }
+                />
+                <InfoItem label="Role" value={profile?.role || "N/A"} />
+                <InfoItem label="User ID" value={profile?.id || user.id} />
+              </div>
+            ) : (
+              <form onSubmit={handleProfileUpdate} className="space-y-5">
+                <div className="space-y-2">
+                  <label
+                    htmlFor="fullName"
+                    className="text-sm font-medium text-zinc-700"
+                  >
+                    Full Name
+                  </label>
+
+                  <input
+                    id="fullName"
+                    type="text"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    disabled={loading}
+                    required
+                    className="h-11 w-full rounded-xl border border-zinc-300 bg-white px-4 text-sm outline-none transition placeholder:text-zinc-400 focus:border-zinc-950 focus:ring-4 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:bg-zinc-100"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label
+                    htmlFor="gender"
+                    className="text-sm font-medium text-zinc-700"
+                  >
+                    Gender
+                  </label>
+
+                  <select
+                    id="gender"
+                    value={gender}
+                    onChange={(e) => setGender(e.target.value)}
+                    disabled={loading}
+                    className="h-11 w-full rounded-xl border border-zinc-300 bg-white px-4 text-sm outline-none transition focus:border-zinc-950 focus:ring-4 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:bg-zinc-100"
+                  >
+                    <option value="">Select Gender</option>
+                    {GENDERS.map((g) => (
+                      <option key={g} value={g}>
+                        {g}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label
+                    htmlFor="dateOfBirth"
+                    className="text-sm font-medium text-zinc-700"
+                  >
+                    Date of Birth
+                  </label>
+
+                  <input
+                    id="dateOfBirth"
+                    type="date"
+                    value={dateOfBirth}
+                    onChange={(e) => setDateOfBirth(e.target.value)}
+                    disabled={loading}
+                    className="h-11 w-full rounded-xl border border-zinc-300 bg-white px-4 text-sm outline-none transition focus:border-zinc-950 focus:ring-4 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:bg-zinc-100"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-3 pt-4 sm:flex-row">
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="h-11 rounded-xl bg-zinc-950 px-6 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    {loading ? "Saving..." : "Save Changes"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleCancelEdit}
+                    disabled={loading}
+                    className="h-11 rounded-xl border border-zinc-300 bg-white px-6 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
+          </section>
+        </div>
       </div>
+    </main>
+  );
+}
+
+function InfoItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+        {label}
+      </p>
+      <p className="mt-2 break-words text-sm font-semibold text-zinc-950">
+        {value}
+      </p>
     </div>
   );
 }
