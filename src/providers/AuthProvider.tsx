@@ -1,6 +1,9 @@
 "use client";
+
 import React, { createContext, useContext, useEffect, useState } from "react";
 import api from "@/lib/api";
+
+type Gender = "MALE" | "FEMALE" | "OTHER" | "PREFER_NOT_TO_SAY";
 
 type User = {
   id: string;
@@ -8,21 +11,42 @@ type User = {
   email: string;
   role: string;
   avatarUrl?: string;
+  gender?: Gender;
+  dateOfBirth?: string;
+  phoneNumber?: string;
 } | null;
+
+type LoginPayload = {
+  email: string;
+  password: string;
+};
+
+type RegisterPayload = {
+  fullName: string;
+  email: string;
+  password: string;
+  dateOfBirth?: string;
+  gender?: Gender;
+  phoneNumber?: string;
+};
 
 type AuthContextValue = {
   user: User;
   accessToken: string | null;
   loading: boolean;
-  login: (payload: { email: string; password: string }) => Promise<void>;
-  register: (payload: { fullName: string; email: string; password: string }) => Promise<void>;
+  login: (payload: LoginPayload) => Promise<void>;
+  register: (payload: RegisterPayload) => Promise<void>;
   logout: () => Promise<void>;
   refreshMe: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-export default function AuthProvider({ children }: { children: React.ReactNode }) {
+export default function AuthProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const [user, setUser] = useState<User>(null);
   const [accessToken, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -38,15 +62,18 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       }
 
       setToken(token);
+
       if (savedUser) {
         try {
           setUser(JSON.parse(savedUser));
-        } catch {}
+        } catch {
+          localStorage.removeItem("user");
+        }
       }
 
       try {
         await refreshMe();
-      } catch (err) {
+      } catch {
         clearAuth();
       } finally {
         setLoading(false);
@@ -56,19 +83,19 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     init();
   }, []);
 
-  async function login(payload: { email: string; password: string }) {
-    const res = await api.post("/auth/login", payload);
+  async function login(payload: LoginPayload) {
+    const res = await api.post("/v1/auth/login", payload);
 
     const token = res.data.data.accessToken;
-    
+
     setToken(token);
     localStorage.setItem("accessToken", token);
 
     await refreshMe();
   }
 
-  async function register(payload: { fullName: string; email: string; password: string }) {
-    const res = await api.post("/auth/register", payload);
+  async function register(payload: RegisterPayload) {
+    const res = await api.post("/v1/auth/register", payload);
 
     const token = res.data.data.accessToken;
 
@@ -80,7 +107,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
 
   async function logout() {
     try {
-      await api.post("/auth/logout");
+      await api.post("/v1/auth/logout");
     } catch {}
 
     clearAuth();
@@ -94,19 +121,8 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     setUser(null);
   }
 
-  async function refreshAccessToken() {
-    const res = await api.post("/auth/refresh");
-
-    const token = res.data.data.accessToken;
-
-    setToken(token);
-    localStorage.setItem("accessToken", token);
-
-    await refreshMe();
-  }
-
   async function refreshMe() {
-    const res = await api.get("/users/me");
+    const res = await api.get("/v1/users/me");
 
     setUser(res.data.data);
     localStorage.setItem("user", JSON.stringify(res.data.data));
@@ -131,6 +147,10 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
 
 export function useAuth() {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
+
+  if (!ctx) {
+    throw new Error("useAuth must be used within AuthProvider");
+  }
+
   return ctx;
 }

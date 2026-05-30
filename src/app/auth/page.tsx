@@ -6,15 +6,22 @@ import { useAuth } from "@/providers/AuthProvider";
 
 type AuthMode = "login" | "register";
 
+const GENDERS = ["MALE", "FEMALE", "OTHER", "PREFER_NOT_TO_SAY"] as const;
+
 export default function AuthPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { login, register } = useAuth();
 
   const [mode, setMode] = useState<AuthMode>("login");
+
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+
+  const [dateOfBirth, setDateOfBirth] = useState("");
+  const [gender, setGender] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -56,7 +63,9 @@ export default function AuthPage() {
     setMode(nextMode);
     setError(null);
 
-    const url = nextMode === "register" ? "/auth?tab=register" : "/auth?tab=login";
+    const url =
+      nextMode === "register" ? "/auth?tab=register" : "/auth?tab=login";
+
     router.replace(url);
   }
 
@@ -94,6 +103,15 @@ export default function AuthPage() {
       return;
     }
 
+    if (mode === "register" && dateOfBirth) {
+      const parsedDate = new Date(dateOfBirth);
+
+      if (Number.isNaN(parsedDate.getTime())) {
+        setError("Date of birth is invalid.");
+        return;
+      }
+    }
+
     try {
       setLoading(true);
 
@@ -103,11 +121,25 @@ export default function AuthPage() {
           password,
         });
       } else {
-        await register({
+        const registerPayload: any = {
           fullName: fullName.trim(),
           email: email.trim(),
           password,
-        });
+        };
+
+        if (dateOfBirth) {
+          registerPayload.dateOfBirth = new Date(dateOfBirth).toISOString();
+        }
+
+        if (gender) {
+          registerPayload.gender = gender;
+        }
+
+        if (phoneNumber.trim()) {
+          registerPayload.phoneNumber = phoneNumber.trim();
+        }
+
+        await register(registerPayload);
       }
 
       router.push("/dashboard");
@@ -120,7 +152,7 @@ export default function AuthPage() {
 
   function handleGoogleLogin() {
     const backendUrl =
-      process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+      process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api";
 
     window.location.href = `${backendUrl}/auth/google`;
   }
@@ -204,24 +236,91 @@ export default function AuthPage() {
 
             <form onSubmit={handleSubmit} className="space-y-5">
               {mode === "register" && (
-                <div className="space-y-2">
-                  <label
-                    htmlFor="fullName"
-                    className="text-sm font-medium text-zinc-700"
-                  >
-                    Full name
-                  </label>
+                <>
+                  <div className="space-y-2">
+                    <label
+                      htmlFor="fullName"
+                      className="text-sm font-medium text-zinc-700"
+                    >
+                      Full name
+                    </label>
 
-                  <input
-                    id="fullName"
-                    type="text"
-                    placeholder="Enter your full name"
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    disabled={loading}
-                    className="h-11 w-full rounded-xl border border-zinc-300 bg-white px-4 text-sm outline-none transition placeholder:text-zinc-400 focus:border-zinc-950 focus:ring-4 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:bg-zinc-100"
-                  />
-                </div>
+                    <input
+                      id="fullName"
+                      type="text"
+                      placeholder="Enter your full name"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      disabled={loading}
+                      className="h-11 w-full rounded-xl border border-zinc-300 bg-white px-4 text-sm outline-none transition placeholder:text-zinc-400 focus:border-zinc-950 focus:ring-4 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:bg-zinc-100"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label
+                      htmlFor="dateOfBirth"
+                      className="text-sm font-medium text-zinc-700"
+                    >
+                      Date of birth
+                    </label>
+
+                    <input
+                      id="dateOfBirth"
+                      type="datetime-local"
+                      value={dateOfBirth}
+                      onChange={(e) => setDateOfBirth(e.target.value)}
+                      disabled={loading}
+                      className="h-11 w-full rounded-xl border border-zinc-300 bg-white px-4 text-sm outline-none transition placeholder:text-zinc-400 focus:border-zinc-950 focus:ring-4 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:bg-zinc-100"
+                    />
+
+                    <p className="text-xs text-zinc-500">
+                      Please select both date and time.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label
+                      htmlFor="gender"
+                      className="text-sm font-medium text-zinc-700"
+                    >
+                      Gender
+                    </label>
+
+                    <select
+                      id="gender"
+                      value={gender}
+                      onChange={(e) => setGender(e.target.value)}
+                      disabled={loading}
+                      className="h-11 w-full rounded-xl border border-zinc-300 bg-white px-4 text-sm outline-none transition focus:border-zinc-950 focus:ring-4 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:bg-zinc-100"
+                    >
+                      <option value="">Select gender</option>
+                      {GENDERS.map((g) => (
+                        <option key={g} value={g}>
+                          {g}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label
+                      htmlFor="phoneNumber"
+                      className="text-sm font-medium text-zinc-700"
+                    >
+                      Phone number
+                    </label>
+
+                    <input
+                      id="phoneNumber"
+                      type="tel"
+                      placeholder="Enter your phone number"
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value)}
+                      disabled={loading}
+                      className="h-11 w-full rounded-xl border border-zinc-300 bg-white px-4 text-sm outline-none transition placeholder:text-zinc-400 focus:border-zinc-950 focus:ring-4 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:bg-zinc-100"
+                    />
+                  </div>
+                </>
               )}
 
               <div className="space-y-2">

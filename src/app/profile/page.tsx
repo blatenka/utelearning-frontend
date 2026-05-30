@@ -51,7 +51,7 @@ export default function ProfilePage() {
         setProfileLoading(true);
         setError(null);
 
-        const res = await api.get("/users/me");
+        const res = await api.get("/v1/users/me");
         const data = res.data.data;
 
         setProfile(data);
@@ -153,7 +153,7 @@ export default function ProfilePage() {
         updateData.dateOfBirth = new Date(dateOfBirth).toISOString();
       }
 
-      await api.patch("/users/me", updateData);
+      await api.patch("/v1/users/me", updateData);
       await refreshMe();
 
       setProfile((prev: any) => ({
@@ -173,70 +173,91 @@ export default function ProfilePage() {
   }
 
   async function handleAvatarUpload() {
-    if (!avatarFile || !user) {
-      setError("Please select an image first.");
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    setSuccess(null);
-
-    try {
-      const sigRes = await api.post("/upload/signature", {
-        folder: `users/${user.id}/avatars`,
-        resourceType: "image",
-        publicId: `user_${user.id}`,
-      });
-
-      const { signature, timestamp, cloudName, apiKey, uploadPreset } =
-        sigRes.data.data;
-
-      const fd = new FormData();
-      fd.append("file", avatarFile);
-      fd.append("api_key", apiKey);
-      fd.append("timestamp", String(timestamp));
-      fd.append("signature", signature);
-      fd.append("upload_preset", uploadPreset);
-      fd.append("folder", `users/${user.id}/avatars`);
-      fd.append("public_id", `user_${user.id}`);
-
-      const cloudUrl = `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`;
-
-      const uploadRes = await fetch(cloudUrl, {
-        method: "POST",
-        body: fd,
-      });
-
-      const uploadJson = await uploadRes.json();
-
-      if (!uploadRes.ok) {
-        throw new Error(uploadJson?.error?.message || "Cloudinary upload failed");
-      }
-
-      const avatarUrl = uploadJson.secure_url;
-
-      if (!avatarUrl) {
-        throw new Error("Cloudinary did not return avatar URL");
-      }
-
-      await api.patch("/users/me", { avatarUrl });
-      await refreshMe();
-
-      setProfile((prev: any) => ({
-        ...prev,
-        avatarUrl,
-      }));
-
-      setAvatarFile(null);
-      setSuccess("Avatar updated successfully!");
-    } catch (err: any) {
-      console.error(err);
-      setError(err?.message || "Upload failed");
-    } finally {
-      setLoading(false);
-    }
+  if (!avatarFile || !user) {
+    setError("Please select an image first.");
+    return;
   }
+
+  setLoading(true);
+  setError(null);
+  setSuccess(null);
+
+  try {
+    const publicId = `user_${user.id}`;
+
+    const sigRes = await api.post("/v1/upload/signature", {
+      entityType: "user",
+      entityId: user.id,
+      resourceType: "image",
+      subFolder: "avatars",
+      publicId,
+    });
+
+    const {
+      signature,
+      timestamp,
+      cloudName,
+      apiKey,
+      uploadPreset,
+      folder,
+      resourceType,
+    } = sigRes.data.data;
+
+    if (!signature || !timestamp || !cloudName || !apiKey || !folder) {
+      throw new Error("Invalid upload signature response");
+    }
+
+    const fd = new FormData();
+    fd.append("file", avatarFile);
+    fd.append("api_key", apiKey);
+    fd.append("timestamp", String(timestamp));
+    fd.append("signature", signature);
+    fd.append("folder", folder);
+    fd.append("public_id", publicId);
+
+    if (uploadPreset) {
+      fd.append("upload_preset", uploadPreset);
+    }
+
+    const cloudUrl = `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType || "image"}/upload`;
+
+    const uploadRes = await fetch(cloudUrl, {
+      method: "POST",
+      body: fd,
+    });
+
+    const uploadJson = await uploadRes.json();
+
+    if (!uploadRes.ok) {
+      throw new Error(
+        uploadJson?.error?.message || "Cloudinary upload failed",
+      );
+    }
+
+    const avatarUrl = uploadJson.secure_url;
+
+    if (!avatarUrl) {
+      throw new Error("Cloudinary did not return avatar URL");
+    }
+
+    await api.patch("/v1/users/me", { avatarUrl });
+
+    await refreshMe();
+
+    setProfile((prev: any) => ({
+      ...prev,
+      avatarUrl,
+    }));
+
+    setAvatarFile(null);
+    setSuccess("Avatar updated successfully!");
+  } catch (err: any) {
+    console.error(err);
+    setError(getErrorMessage(err, "Upload failed"));
+  } finally {
+    setLoading(false);
+  }
+}
 
   if (authLoading || profileLoading) {
     return (

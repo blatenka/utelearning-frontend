@@ -23,7 +23,7 @@ export default function AdminUsersPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.get("/admin/users");
+      const res = await api.get("/v1/admin/users");
       setUsers(res.data?.data?.data || []);
     } catch (err: any) {
       setError(err?.response?.data?.message || "Could not load users");
@@ -63,7 +63,7 @@ export default function AdminUsersPage() {
     }
     setLoading(true);
     try {
-      await api.delete(`/admin/users/${id}`);
+      await api.delete(`/v1/admin/users/${id}`);
       await loadUsers();
     } catch (err: any) {
       setError(err?.response?.data?.message || "Delete failed");
@@ -78,9 +78,9 @@ export default function AdminUsersPage() {
     setError(null);
     try {
       if (formMode === "create") {
-        await api.post("/admin/users", { fullName, email, password, role });
+        await api.post("/v1/admin/users", { fullName, email, password, role });
       } else if (selectedUserId) {
-        await api.patch(`/admin/users/${selectedUserId}`, {
+        await api.patch(`/v1/admin/users/${selectedUserId}`, {
           fullName,
           email,
           password: password || undefined,
