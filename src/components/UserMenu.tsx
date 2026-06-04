@@ -8,6 +8,7 @@ export default function UserMenu({ user }: { user: any }) {
   const { logout } = useAuth();
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const isAdmin = user?.role === "ADMIN";
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -45,7 +46,7 @@ export default function UserMenu({ user }: { user: any }) {
       </button>
 
       <div
-        className={`absolute right-0 z-20 mt-2 w-44 rounded-xl border border-zinc-200/80 bg-white/95 backdrop-blur-md p-1.5 shadow-xl transition-all duration-200 origin-top-right ${
+        className={`absolute right-0 z-20 mt-2 w-48 rounded-xl border border-zinc-200/80 bg-white/95 backdrop-blur-md p-1.5 shadow-xl transition-all duration-200 origin-top-right ${
           open
             ? "opacity-100 scale-100 translate-y-0"
             : "opacity-0 scale-95 -translate-y-1 pointer-events-none"
@@ -61,6 +62,34 @@ export default function UserMenu({ user }: { user: any }) {
         >
           Profile
         </button>
+
+        {isAdmin && (
+          <>
+            <div className="border-t border-zinc-200 my-1" />
+            <button
+              type="button"
+              className="block w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-zinc-100 transition-colors cursor-pointer text-blue-600"
+              onClick={() => {
+                setOpen(false);
+                router.push("/admin/users");
+              }}
+            >
+              User Management
+            </button>
+            <button
+              type="button"
+              className="block w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-zinc-100 transition-colors cursor-pointer text-blue-600"
+              onClick={() => {
+                setOpen(false);
+                router.push("/admin/categories");
+              }}
+            >
+              Categories Management
+            </button>
+          </>
+        )}
+
+        <div className="border-t border-zinc-200 my-1" />
         <button
           type="button"
           className="block w-full text-left px-3 py-2 text-sm text-red-600 rounded-lg hover:bg-red-50 hover:text-red-700 transition-colors cursor-pointer"

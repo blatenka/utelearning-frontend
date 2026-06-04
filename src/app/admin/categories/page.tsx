@@ -1,21 +1,23 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { useAuth } from "@/providers/AuthProvider";
 
-const roleOptions = ["ADMIN", "INSTRUCTOR", "LEARNER", "REVIEWER"] as const;
-
-type Role = (typeof roleOptions)[number];
-
-type UserItem = {
+type Category = {
   id: string;
-  fullName?: string | null;
-  email?: string | null;
-  role?: Role;
-  isActive?: boolean;
-  createdAt?: string;
-  updatedAt?: string;
+  name: string;
+  slug: string;
+  description?: string | null;
+  parentId?: string | null;
+  parentName?: string;
+  order: number;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt?: Date | null;
+  courseCount?: number;
+  childrenCount?: number;
 };
 
 type FormMode = "create" | "edit" | null;
@@ -29,32 +31,33 @@ type ConfirmModalState = {
   onConfirm: (() => Promise<void>) | null;
 };
 
-export default function AdminUsersPage() {
+export default function AdminCategoriesPage() {
   const { user, loading: authLoading } = useAuth();
 
-  const [users, setUsers] = useState<UserItem[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(false);
   const [tableLoading, setTableLoading] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  const [formMode, setFormMode] = useState<FormMode>(null);
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
-
-  const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [role, setRole] = useState<Role>("LEARNER");
-
-  const [search, setSearch] = useState("");
-  const [filterRole, setFilterRole] = useState<Role | "all">("all");
-  const [filterActive, setFilterActive] = useState<boolean | "all">("all");
-  const [sortBy, setSortBy] = useState<"createdAt" | "fullName" | "email" | "role">("createdAt");
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
-
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
+  const [total, setTotal] = useState(0);
+  const [search, setSearch] = useState("");
+  const [filterActive, setFilterActive] = useState<boolean | "all">("all");
+  const [includeDeleted, setIncludeDeleted] = useState(false);
+  const [sortBy, setSortBy] = useState<"createdAt" | "name" | "order">("createdAt");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+
+  const [formMode, setFormMode] = useState<FormMode>(null);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+
+  const [formData, setFormData] = useState({
+    name: "",
+    description: "",
+    parentId: "",
+  });
 
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({
     open: false,
@@ -66,16 +69,38 @@ export default function AdminUsersPage() {
   });
 
   const isAdmin = user?.role === "ADMIN";
+  const totalPages = Math.max(1, Math.ceil(total / limit));
 
-  const loadUsers = async () => {
+  const loadCategories = async () => {
     setTableLoading(true);
     setError(null);
 
     try {
-      const res = await api.get("/v1/admin/users");
-      setUsers(res.data?.data?.data || []);
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: limit.toString(),
+        sortBy,
+        sortOrder,
+      });
+
+      if (search.trim()) {
+        params.append("search", search.trim());
+      }
+
+      if (filterActive !== "all") {
+        params.append("isActive", filterActive.toString());
+      }
+
+      if (includeDeleted) {
+        params.append("includeDeleted", "true");
+      }
+
+      const res = await api.get(`/v1/categories?${params.toString()}`);
+
+      setCategories(res.data?.data?.data || []);
+      setTotal(res.data?.data?.meta?.total || 0);
     } catch (err: any) {
-      setError(err?.response?.data?.message || "Could not load users");
+      setError(err?.response?.data?.message || "Failed to load categories");
     } finally {
       setTableLoading(false);
     }
@@ -83,8 +108,8 @@ export default function AdminUsersPage() {
 
   useEffect(() => {
     if (!isAdmin) return;
-    loadUsers();
-  }, [isAdmin]);
+    loadCategories();
+  }, [isAdmin, page, limit, search, filterActive, includeDeleted, sortBy, sortOrder]);
 
   useEffect(() => {
     if (!success) return;
@@ -95,79 +120,6 @@ export default function AdminUsersPage() {
 
     return () => clearTimeout(timer);
   }, [success]);
-
-  const filteredUsers = useMemo(() => {
-    let result = [...users];
-
-    const keyword = search.trim().toLowerCase();
-
-    if (keyword) {
-      result = result.filter((item) => {
-        const name = item.fullName?.toLowerCase() || "";
-        const emailValue = item.email?.toLowerCase() || "";
-        const roleValue = item.role?.toLowerCase() || "";
-
-        return (
-          name.includes(keyword) ||
-          emailValue.includes(keyword) ||
-          roleValue.includes(keyword)
-        );
-      });
-    }
-
-    if (filterRole !== "all") {
-      result = result.filter((item) => item.role === filterRole);
-    }
-
-    if (filterActive !== "all") {
-      result = result.filter((item) => Boolean(item.isActive) === filterActive);
-    }
-
-    result.sort((a, b) => {
-      let valueA = "";
-      let valueB = "";
-
-      if (sortBy === "createdAt") {
-        valueA = a.createdAt || "";
-        valueB = b.createdAt || "";
-      }
-
-      if (sortBy === "fullName") {
-        valueA = a.fullName || "";
-        valueB = b.fullName || "";
-      }
-
-      if (sortBy === "email") {
-        valueA = a.email || "";
-        valueB = b.email || "";
-      }
-
-      if (sortBy === "role") {
-        valueA = a.role || "";
-        valueB = b.role || "";
-      }
-
-      const compare = valueA.localeCompare(valueB);
-
-      return sortOrder === "asc" ? compare : -compare;
-    });
-
-    return result;
-  }, [users, search, filterRole, filterActive, sortBy, sortOrder]);
-
-  const total = filteredUsers.length;
-  const totalPages = Math.max(1, Math.ceil(total / limit));
-
-  const paginatedUsers = useMemo(() => {
-    const startIndex = (page - 1) * limit;
-    return filteredUsers.slice(startIndex, startIndex + limit);
-  }, [filteredUsers, page, limit]);
-
-  useEffect(() => {
-    if (page > totalPages) {
-      setPage(totalPages);
-    }
-  }, [page, totalPages]);
 
   const closeConfirmModal = () => {
     setConfirmModal({
@@ -182,21 +134,23 @@ export default function AdminUsersPage() {
 
   const resetForm = () => {
     setFormMode(null);
-    setSelectedUserId(null);
-    setFullName("");
-    setEmail("");
-    setPassword("");
-    setRole("LEARNER");
+    setSelectedCategoryId(null);
+    setFormData({
+      name: "",
+      description: "",
+      parentId: "",
+    });
     setError(null);
   };
 
-  const handleNewUser = () => {
+  const handleNewCategory = () => {
     setFormMode("create");
-    setSelectedUserId(null);
-    setFullName("");
-    setEmail("");
-    setPassword("");
-    setRole("LEARNER");
+    setSelectedCategoryId(null);
+    setFormData({
+      name: "",
+      description: "",
+      parentId: "",
+    });
     setError(null);
     setSuccess(null);
 
@@ -206,13 +160,16 @@ export default function AdminUsersPage() {
     });
   };
 
-  const handleEdit = (item: UserItem) => {
+  const handleEdit = (category: Category) => {
     setFormMode("edit");
-    setSelectedUserId(item.id);
-    setFullName(item.fullName || "");
-    setEmail(item.email || "");
-    setPassword("");
-    setRole(item.role || "LEARNER");
+    setSelectedCategoryId(category.id);
+
+    setFormData({
+      name: category.name,
+      description: category.description || "",
+      parentId: category.parentId || "",
+    });
+
     setError(null);
     setSuccess(null);
 
@@ -222,13 +179,11 @@ export default function AdminUsersPage() {
     });
   };
 
-  const handleDelete = (item: UserItem) => {
+  const handleSoftDelete = (category: Category) => {
     setConfirmModal({
       open: true,
-      title: "Delete user?",
-      message: `Are you sure you want to delete "${
-        item.fullName || item.email || "this user"
-      }"? This action may remove the user from the system.`,
+      title: "Delete category?",
+      message: `Are you sure you want to delete "${category.name}"? This category will be soft deleted and can be restored later.`,
       confirmText: "Delete",
       variant: "danger",
       onConfirm: async () => {
@@ -237,12 +192,71 @@ export default function AdminUsersPage() {
         setSuccess(null);
 
         try {
-          await api.delete(`/v1/admin/users/${item.id}`);
-          setSuccess("User deleted successfully");
-          await loadUsers();
+          await api.patch(`/v1/categories/${category.id}/soft-delete`);
+          setSuccess("Category soft deleted");
+          await loadCategories();
           closeConfirmModal();
         } catch (err: any) {
           setError(err?.response?.data?.message || "Delete failed");
+        } finally {
+          setLoading(false);
+        }
+      },
+    });
+  };
+
+  const handleRestore = (category: Category) => {
+    setConfirmModal({
+      open: true,
+      title: "Restore category?",
+      message: `Are you sure you want to restore "${category.name}"? This category will become available again.`,
+      confirmText: "Restore",
+      variant: "success",
+      onConfirm: async () => {
+        setLoading(true);
+        setError(null);
+        setSuccess(null);
+
+        try {
+          await api.patch(`/v1/categories/${category.id}/restore`);
+          setSuccess("Category restored");
+          await loadCategories();
+          closeConfirmModal();
+        } catch (err: any) {
+          setError(err?.response?.data?.message || "Restore failed");
+        } finally {
+          setLoading(false);
+        }
+      },
+    });
+  };
+
+  const handleToggleActive = (category: Category) => {
+    const nextStatus = !category.isActive;
+
+    setConfirmModal({
+      open: true,
+      title: nextStatus ? "Activate category?" : "Deactivate category?",
+      message: nextStatus
+        ? `Are you sure you want to activate "${category.name}"?`
+        : `Are you sure you want to deactivate "${category.name}"? Learners may not be able to see this category.`,
+      confirmText: nextStatus ? "Activate" : "Deactivate",
+      variant: nextStatus ? "success" : "warning",
+      onConfirm: async () => {
+        setLoading(true);
+        setError(null);
+        setSuccess(null);
+
+        try {
+          await api.patch(`/v1/categories/${category.id}/active-status`, {
+            isActive: nextStatus,
+          });
+
+          setSuccess(`Category ${nextStatus ? "activated" : "deactivated"}`);
+          await loadCategories();
+          closeConfirmModal();
+        } catch (err: any) {
+          setError(err?.response?.data?.message || "Update failed");
         } finally {
           setLoading(false);
         }
@@ -257,47 +271,40 @@ export default function AdminUsersPage() {
     setError(null);
     setSuccess(null);
 
-    if (!fullName.trim()) {
-      setError("Full name is required");
-      setLoading(false);
-      return;
-    }
-
-    if (!email.trim()) {
-      setError("Email is required");
-      setLoading(false);
-      return;
-    }
-
-    if (formMode === "create" && !password.trim()) {
-      setError("Password is required when creating a user");
+    if (!formData.name.trim()) {
+      setError("Category name is required");
       setLoading(false);
       return;
     }
 
     try {
+      const payload: {
+        name: string;
+        description?: string;
+        parentId?: string;
+      } = {
+        name: formData.name.trim(),
+      };
+
+      if (formData.description.trim()) {
+        payload.description = formData.description.trim();
+      }
+
+      if (formData.parentId) {
+        payload.parentId = formData.parentId;
+      }
+
       if (formMode === "create") {
-        await api.post("/v1/admin/users", {
-          fullName: fullName.trim(),
-          email: email.trim(),
-          password,
-          role,
-        });
-
-        setSuccess("User created successfully");
-      } else if (formMode === "edit" && selectedUserId) {
-        await api.patch(`/v1/admin/users/${selectedUserId}`, {
-          fullName: fullName.trim(),
-          email: email.trim(),
-          password: password.trim() || undefined,
-          role,
-        });
-
-        setSuccess("User updated successfully");
+        await api.post("/v1/categories", payload);
+        setSuccess("Category created successfully");
+      } else if (formMode === "edit" && selectedCategoryId) {
+        await api.patch(`/v1/categories/${selectedCategoryId}`, payload);
+        setSuccess("Category updated successfully");
       }
 
       resetForm();
-      await loadUsers();
+      setPage(1);
+      await loadCategories();
     } catch (err: any) {
       setError(err?.response?.data?.message || "Save failed");
     } finally {
@@ -357,19 +364,17 @@ export default function AdminUsersPage() {
         <div className="rounded bg-white p-6 shadow">
           <div className="mb-4 flex items-center justify-between">
             <div>
-              <h2 className="text-2xl font-semibold">Admin — Users</h2>
-              <p className="text-sm text-zinc-600">
-                Create, search, filter and manage users from the admin panel.
-              </p>
+              <h2 className="text-2xl font-semibold">Admin — Categories</h2>
+              <p className="text-sm text-zinc-600">Manage course categories</p>
             </div>
 
             <button
               type="button"
-              onClick={handleNewUser}
+              onClick={handleNewCategory}
               disabled={loading}
               className="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400"
             >
-              + New User
+              + New Category
             </button>
           </div>
 
@@ -382,75 +387,76 @@ export default function AdminUsersPage() {
           {formMode && (
             <form onSubmit={handleSubmit} className="mb-6 rounded border bg-zinc-50 p-4">
               <h3 className="mb-4 text-lg font-semibold">
-                {formMode === "create" ? "New User" : "Edit User"}
+                {formMode === "create" ? "New Category" : "Edit Category"}
               </h3>
 
               <div className="mb-4 grid gap-4 sm:grid-cols-2">
                 <label className="space-y-1 text-sm">
-                  <span className="font-medium">Full Name *</span>
+                  <span className="font-medium">Category Name *</span>
                   <input
+                    type="text"
                     className="w-full rounded border p-2"
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
+                    value={formData.name}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        name: e.target.value,
+                      })
+                    }
                     disabled={loading}
                     required
                   />
                 </label>
 
                 <label className="space-y-1 text-sm">
-                  <span className="font-medium">Email *</span>
-                  <input
-                    type="email"
-                    className="w-full rounded border p-2"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    disabled={loading}
-                    required
-                  />
-                </label>
-
-                <label className="space-y-1 text-sm">
-                  <span className="font-medium">
-                    Password {formMode === "edit" ? "(leave blank to keep current)" : "*"}
-                  </span>
-                  <input
-                    type="password"
-                    className="w-full rounded border p-2"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    disabled={loading}
-                    required={formMode === "create"}
-                  />
-                </label>
-
-                <label className="space-y-1 text-sm">
-                  <span className="font-medium">Role</span>
+                  <span className="font-medium">Parent Category Optional</span>
                   <select
                     className="w-full rounded border p-2"
-                    value={role}
-                    onChange={(e) => setRole(e.target.value as Role)}
+                    value={formData.parentId}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        parentId: e.target.value,
+                      })
+                    }
                     disabled={loading}
                   >
-                    {roleOptions.map((item) => (
-                      <option key={item} value={item}>
-                        {item}
-                      </option>
-                    ))}
+                    <option value="">None Top-level</option>
+
+                    {categories
+                      .filter((category) => category.id !== selectedCategoryId && !category.parentId)
+                      .map((category) => (
+                        <option key={category.id} value={category.id}>
+                          {category.name}
+                        </option>
+                      ))}
                   </select>
                 </label>
               </div>
 
-              <div className="flex gap-2">
+              <label className="w-full space-y-1 text-sm">
+                <span className="font-medium">Description</span>
+                <textarea
+                  className="w-full rounded border p-2"
+                  rows={3}
+                  value={formData.description}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      description: e.target.value,
+                    })
+                  }
+                  disabled={loading}
+                />
+              </label>
+
+              <div className="mt-4 flex gap-2">
                 <button
                   type="submit"
                   disabled={loading}
                   className="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400"
                 >
-                  {loading
-                    ? "Saving..."
-                    : formMode === "create"
-                    ? "Create User"
-                    : "Update User"}
+                  {loading ? "Saving..." : "Save"}
                 </button>
 
                 <button
@@ -468,7 +474,7 @@ export default function AdminUsersPage() {
           <div className="mb-6 grid gap-4 sm:grid-cols-4">
             <input
               type="text"
-              placeholder="Search users..."
+              placeholder="Search categories..."
               className="rounded border p-2 text-sm"
               value={search}
               onChange={(e) => {
@@ -476,22 +482,6 @@ export default function AdminUsersPage() {
                 setPage(1);
               }}
             />
-
-            <select
-              className="rounded border p-2 text-sm"
-              value={filterRole}
-              onChange={(e) => {
-                setFilterRole(e.target.value as Role | "all");
-                setPage(1);
-              }}
-            >
-              <option value="all">All Roles</option>
-              {roleOptions.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
 
             <select
               className="rounded border p-2 text-sm"
@@ -506,25 +496,35 @@ export default function AdminUsersPage() {
               <option value="false">Inactive</option>
             </select>
 
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={includeDeleted}
+                onChange={(e) => {
+                  setIncludeDeleted(e.target.checked);
+                  setPage(1);
+                }}
+              />
+              Show Deleted
+            </label>
+
             <select
               className="rounded border p-2 text-sm"
               value={`${sortBy}-${sortOrder}`}
               onChange={(e) => {
                 const [field, order] = e.target.value.split("-");
 
-                setSortBy(field as "createdAt" | "fullName" | "email" | "role");
+                setSortBy(field as "createdAt" | "name" | "order");
                 setSortOrder(order as "asc" | "desc");
                 setPage(1);
               }}
             >
               <option value="createdAt-desc">Newest First</option>
               <option value="createdAt-asc">Oldest First</option>
-              <option value="fullName-asc">Name A-Z</option>
-              <option value="fullName-desc">Name Z-A</option>
-              <option value="email-asc">Email A-Z</option>
-              <option value="email-desc">Email Z-A</option>
-              <option value="role-asc">Role A-Z</option>
-              <option value="role-desc">Role Z-A</option>
+              <option value="name-asc">Name A-Z</option>
+              <option value="name-desc">Name Z-A</option>
+              <option value="order-asc">Order Asc</option>
+              <option value="order-desc">Order Desc</option>
             </select>
           </div>
 
@@ -533,9 +533,11 @@ export default function AdminUsersPage() {
               <thead>
                 <tr className="border-b bg-zinc-100">
                   <th className="p-2 text-left">Name</th>
-                  <th className="p-2 text-left">Email</th>
-                  <th className="p-2 text-center">Role</th>
+                  <th className="p-2 text-left">Slug</th>
+                  <th className="p-2 text-left">Parent</th>
+                  <th className="p-2 text-center">Order</th>
                   <th className="p-2 text-center">Status</th>
+                  <th className="p-2 text-center">Courses</th>
                   <th className="p-2 text-center">Actions</th>
                 </tr>
               </thead>
@@ -543,45 +545,50 @@ export default function AdminUsersPage() {
               <tbody>
                 {tableLoading ? (
                   <tr>
-                    <td colSpan={5} className="p-4 text-center text-zinc-500">
-                      Loading users...
+                    <td colSpan={7} className="p-4 text-center text-zinc-500">
+                      Loading categories...
                     </td>
                   </tr>
-                ) : paginatedUsers.length === 0 ? (
+                ) : categories.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="p-4 text-center text-zinc-500">
-                      No users found
+                    <td colSpan={7} className="p-4 text-center text-zinc-500">
+                      No categories found
                     </td>
                   </tr>
                 ) : (
-                  paginatedUsers.map((item) => (
-                    <tr key={item.id} className="border-b hover:bg-zinc-50">
-                      <td className="p-2 font-medium">{item.fullName || "-"}</td>
-
-                      <td className="p-2 text-zinc-600">{item.email || "-"}</td>
-
-                      <td className="p-2 text-center">
-                        <span className="inline-block rounded bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700">
-                          {item.role || "-"}
-                        </span>
+                  categories.map((category) => (
+                    <tr key={category.id} className="border-b hover:bg-zinc-50">
+                      <td className="p-2 font-medium">
+                        {category.name}
+                        {category.deletedAt && (
+                          <span className="ml-2 text-red-500">[DELETED]</span>
+                        )}
                       </td>
+
+                      <td className="p-2 text-xs text-zinc-600">{category.slug}</td>
+
+                      <td className="p-2 text-sm">{category.parentName || "-"}</td>
+
+                      <td className="p-2 text-center">{category.order}</td>
 
                       <td className="p-2 text-center">
                         <span
                           className={`inline-block rounded px-2 py-1 text-xs font-medium ${
-                            item.isActive
+                            category.isActive
                               ? "bg-green-100 text-green-800"
                               : "bg-red-100 text-red-800"
                           }`}
                         >
-                          {item.isActive ? "Active" : "Inactive"}
+                          {category.isActive ? "Active" : "Inactive"}
                         </span>
                       </td>
+
+                      <td className="p-2 text-center">{category.courseCount || 0}</td>
 
                       <td className="space-x-2 p-2 text-center">
                         <button
                           type="button"
-                          onClick={() => handleEdit(item)}
+                          onClick={() => handleEdit(category)}
                           disabled={loading}
                           className="text-xs font-medium text-blue-600 hover:text-blue-800 disabled:text-gray-400"
                         >
@@ -590,12 +597,32 @@ export default function AdminUsersPage() {
 
                         <button
                           type="button"
-                          onClick={() => handleDelete(item)}
+                          onClick={() => handleToggleActive(category)}
                           disabled={loading}
-                          className="text-xs font-medium text-red-600 hover:text-red-800 disabled:text-gray-400"
+                          className="text-xs font-medium text-yellow-600 hover:text-yellow-800 disabled:text-gray-400"
                         >
-                          Delete
+                          {category.isActive ? "Deactivate" : "Activate"}
                         </button>
+
+                        {!category.deletedAt ? (
+                          <button
+                            type="button"
+                            onClick={() => handleSoftDelete(category)}
+                            disabled={loading}
+                            className="text-xs font-medium text-red-600 hover:text-red-800 disabled:text-gray-400"
+                          >
+                            Delete
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleRestore(category)}
+                            disabled={loading}
+                            className="text-xs font-medium text-orange-600 hover:text-orange-800 disabled:text-gray-400"
+                          >
+                            Restore
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))
@@ -607,7 +634,7 @@ export default function AdminUsersPage() {
           <div className="mt-4 flex items-center justify-between">
             <div className="text-sm text-zinc-600">
               Showing {total === 0 ? 0 : (page - 1) * limit + 1} to{" "}
-              {Math.min(page * limit, total)} of {total} users
+              {Math.min(page * limit, total)} of {total} categories
             </div>
 
             <div className="flex gap-2">

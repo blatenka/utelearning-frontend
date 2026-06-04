@@ -28,11 +28,6 @@ export default function Header() {
             </Link>
           ) : (
             <div className="flex items-center gap-4">
-              {user.role === "ADMIN" && (
-                <Link href="/admin/users" className="rounded-md bg-primary px-3 py-1 text-sm text-white">
-                  Admin
-                </Link>
-              )}
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-zinc-700">{user.fullName}</span>
                 <UserMenu user={user} />

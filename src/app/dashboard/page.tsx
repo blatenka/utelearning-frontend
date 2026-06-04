@@ -29,14 +29,6 @@ export default function DashboardPage() {
 
       <div className="mt-6">
         <p>Welcome to the UT-Elearning. Courses are not yet available.</p>
-
-        {user?.role?.toUpperCase() === "ADMIN" && (
-          <p className="mt-4">
-            <Link href="/admin/users" className="text-sm text-primary">
-              Manage users (Admin)
-            </Link>
-          </p>
-        )}
       </div>
     </div>
   );
