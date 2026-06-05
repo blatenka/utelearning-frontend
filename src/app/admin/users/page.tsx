@@ -5,20 +5,28 @@ import api from "@/lib/api";
 import { useAuth } from "@/providers/AuthProvider";
 
 const roleOptions = ["ADMIN", "INSTRUCTOR", "LEARNER", "REVIEWER"] as const;
+const genderOptions = ["MALE", "FEMALE", "OTHER", "PREFER_NOT_TO_SAY"] as const;
 
 type Role = (typeof roleOptions)[number];
+type Gender = (typeof genderOptions)[number];
 
 type UserItem = {
   id: string;
   fullName?: string | null;
   email?: string | null;
+  phoneNumber?: string | null;
+  dateOfBirth?: string | Date | null;
+  gender?: Gender | null;
+  avatarUrl?: string | null;
   role?: Role;
   isActive?: boolean;
-  createdAt?: string;
-  updatedAt?: string;
+  emailVerified?: boolean;
+  createdAt?: string | Date;
+  updatedAt?: string | Date;
+  lastLoginAt?: string | Date | null;
 };
 
-type FormMode = "create" | "edit" | null;
+type FormMode = "create" | "edit";
 
 type ConfirmModalState = {
   open: boolean;
@@ -39,18 +47,29 @@ export default function AdminUsersPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  const [formMode, setFormMode] = useState<FormMode>(null);
+  const [formMode, setFormMode] = useState<FormMode>("create");
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [dateOfBirth, setDateOfBirth] = useState("");
+  const [gender, setGender] = useState<Gender | "">("");
+  const [avatarUrl, setAvatarUrl] = useState("");
   const [role, setRole] = useState<Role>("LEARNER");
+  const [isActive, setIsActive] = useState(true);
+  const [emailVerified, setEmailVerified] = useState(false);
 
   const [search, setSearch] = useState("");
   const [filterRole, setFilterRole] = useState<Role | "all">("all");
   const [filterActive, setFilterActive] = useState<boolean | "all">("all");
-  const [sortBy, setSortBy] = useState<"createdAt" | "fullName" | "email" | "role">("createdAt");
+  const [filterEmailVerified, setFilterEmailVerified] = useState<boolean | "all">(
+    "all"
+  );
+  const [sortBy, setSortBy] = useState<
+    "createdAt" | "fullName" | "email" | "role"
+  >("createdAt");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
 
   const [page, setPage] = useState(1);
@@ -96,6 +115,32 @@ export default function AdminUsersPage() {
     return () => clearTimeout(timer);
   }, [success]);
 
+  const formatDateTime = (value?: string | Date | null) => {
+    if (!value) return "-";
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) return "-";
+
+    return date.toLocaleString("vi-VN", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  const formatDateInput = (value?: string | Date | null) => {
+    if (!value) return "";
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) return "";
+
+    return date.toISOString().split("T")[0];
+  };
+
   const filteredUsers = useMemo(() => {
     let result = [...users];
 
@@ -103,14 +148,20 @@ export default function AdminUsersPage() {
 
     if (keyword) {
       result = result.filter((item) => {
-        const name = item.fullName?.toLowerCase() || "";
+        const idValue = item.id?.toLowerCase() || "";
+        const nameValue = item.fullName?.toLowerCase() || "";
         const emailValue = item.email?.toLowerCase() || "";
+        const phoneValue = item.phoneNumber?.toLowerCase() || "";
         const roleValue = item.role?.toLowerCase() || "";
+        const genderValue = item.gender?.toLowerCase() || "";
 
         return (
-          name.includes(keyword) ||
+          idValue.includes(keyword) ||
+          nameValue.includes(keyword) ||
           emailValue.includes(keyword) ||
-          roleValue.includes(keyword)
+          phoneValue.includes(keyword) ||
+          roleValue.includes(keyword) ||
+          genderValue.includes(keyword)
         );
       });
     }
@@ -123,13 +174,19 @@ export default function AdminUsersPage() {
       result = result.filter((item) => Boolean(item.isActive) === filterActive);
     }
 
+    if (filterEmailVerified !== "all") {
+      result = result.filter(
+        (item) => Boolean(item.emailVerified) === filterEmailVerified
+      );
+    }
+
     result.sort((a, b) => {
       let valueA = "";
       let valueB = "";
 
       if (sortBy === "createdAt") {
-        valueA = a.createdAt || "";
-        valueB = b.createdAt || "";
+        valueA = a.createdAt ? new Date(a.createdAt).toISOString() : "";
+        valueB = b.createdAt ? new Date(b.createdAt).toISOString() : "";
       }
 
       if (sortBy === "fullName") {
@@ -153,7 +210,15 @@ export default function AdminUsersPage() {
     });
 
     return result;
-  }, [users, search, filterRole, filterActive, sortBy, sortOrder]);
+  }, [
+    users,
+    search,
+    filterRole,
+    filterActive,
+    filterEmailVerified,
+    sortBy,
+    sortOrder,
+  ]);
 
   const total = filteredUsers.length;
   const totalPages = Math.max(1, Math.ceil(total / limit));
@@ -181,23 +246,25 @@ export default function AdminUsersPage() {
   };
 
   const resetForm = () => {
-    setFormMode(null);
+    setFormMode("create");
     setSelectedUserId(null);
+
     setFullName("");
     setEmail("");
     setPassword("");
+    setPhoneNumber("");
+    setDateOfBirth("");
+    setGender("");
+    setAvatarUrl("");
     setRole("LEARNER");
+    setIsActive(true);
+    setEmailVerified(false);
+
     setError(null);
   };
 
   const handleNewUser = () => {
-    setFormMode("create");
-    setSelectedUserId(null);
-    setFullName("");
-    setEmail("");
-    setPassword("");
-    setRole("LEARNER");
-    setError(null);
+    resetForm();
     setSuccess(null);
 
     window.scrollTo({
@@ -209,10 +276,18 @@ export default function AdminUsersPage() {
   const handleEdit = (item: UserItem) => {
     setFormMode("edit");
     setSelectedUserId(item.id);
+
     setFullName(item.fullName || "");
     setEmail(item.email || "");
     setPassword("");
+    setPhoneNumber(item.phoneNumber || "");
+    setDateOfBirth(formatDateInput(item.dateOfBirth));
+    setGender(item.gender || "");
+    setAvatarUrl(item.avatarUrl || "");
     setRole(item.role || "LEARNER");
+    setIsActive(Boolean(item.isActive));
+    setEmailVerified(Boolean(item.emailVerified));
+
     setError(null);
     setSuccess(null);
 
@@ -239,6 +314,11 @@ export default function AdminUsersPage() {
         try {
           await api.delete(`/v1/admin/users/${item.id}`);
           setSuccess("User deleted successfully");
+
+          if (selectedUserId === item.id) {
+            resetForm();
+          }
+
           await loadUsers();
           closeConfirmModal();
         } catch (err: any) {
@@ -250,6 +330,85 @@ export default function AdminUsersPage() {
     });
   };
 
+  const buildCreatePayload = () => {
+    const payload: {
+      fullName: string;
+      email: string;
+      password: string;
+      phoneNumber?: string;
+      dateOfBirth?: string;
+      gender?: Gender;
+      avatarUrl?: string;
+      role: Role;
+    } = {
+      fullName: fullName.trim(),
+      email: email.trim(),
+      password: password.trim(),
+      role,
+    };
+
+    if (phoneNumber.trim()) {
+      payload.phoneNumber = phoneNumber.trim();
+    }
+
+    if (dateOfBirth) {
+      payload.dateOfBirth = dateOfBirth;
+    }
+
+    if (gender) {
+      payload.gender = gender;
+    }
+
+    if (avatarUrl.trim()) {
+      payload.avatarUrl = avatarUrl.trim();
+    }
+
+    return payload;
+  };
+
+  const buildUpdatePayload = () => {
+    const payload: {
+      fullName?: string;
+      email?: string;
+      password?: string;
+      phoneNumber?: string;
+      dateOfBirth?: string;
+      gender?: Gender;
+      avatarUrl?: string;
+      role?: Role;
+      isActive?: boolean;
+      emailVerified?: boolean;
+    } = {
+      fullName: fullName.trim(),
+      email: email.trim(),
+      role,
+      isActive,
+      emailVerified,
+    };
+
+    if (password.trim()) {
+      payload.password = password.trim();
+    }
+
+    if (phoneNumber.trim()) {
+      payload.phoneNumber = phoneNumber.trim();
+    }
+
+    if (dateOfBirth) {
+      payload.dateOfBirth = dateOfBirth;
+    }
+
+    if (gender) {
+      payload.gender = gender;
+    }
+
+    if (avatarUrl.trim()) {
+      payload.avatarUrl = avatarUrl.trim();
+    }
+
+    return payload;
+  };
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
@@ -259,6 +418,12 @@ export default function AdminUsersPage() {
 
     if (!fullName.trim()) {
       setError("Full name is required");
+      setLoading(false);
+      return;
+    }
+
+    if (fullName.trim().length < 2) {
+      setError("Full name must be at least 2 characters");
       setLoading(false);
       return;
     }
@@ -275,31 +440,40 @@ export default function AdminUsersPage() {
       return;
     }
 
+    if (password.trim()) {
+      const strongPasswordRegex =
+        /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+
+      if (!strongPasswordRegex.test(password.trim())) {
+        setError(
+          "Password must contain at least 1 uppercase letter, 1 lowercase letter, 1 number, and 1 special character (@$!%*?&)"
+        );
+        setLoading(false);
+        return;
+      }
+    }
+
     try {
       if (formMode === "create") {
-        await api.post("/v1/admin/users", {
-          fullName: fullName.trim(),
-          email: email.trim(),
-          password,
-          role,
-        });
-
+        await api.post("/v1/admin/users", buildCreatePayload());
         setSuccess("User created successfully");
-      } else if (formMode === "edit" && selectedUserId) {
-        await api.patch(`/v1/admin/users/${selectedUserId}`, {
-          fullName: fullName.trim(),
-          email: email.trim(),
-          password: password.trim() || undefined,
-          role,
-        });
+      }
 
+      if (formMode === "edit" && selectedUserId) {
+        await api.patch(`/v1/admin/users/${selectedUserId}`, buildUpdatePayload());
         setSuccess("User updated successfully");
       }
 
       resetForm();
       await loadUsers();
     } catch (err: any) {
-      setError(err?.response?.data?.message || "Save failed");
+      const message = err?.response?.data?.message;
+
+      if (Array.isArray(message)) {
+        setError(message.join(", "));
+      } else {
+        setError(message || "Save failed");
+      }
     } finally {
       setLoading(false);
     }
@@ -348,305 +522,582 @@ export default function AdminUsersPage() {
   }
 
   if (!isAdmin) {
-    return <div className="p-6 text-center text-red-500">Access denied. Admins only.</div>;
+    return (
+      <div className="p-6 text-center text-red-500">
+        Access denied. Admins only.
+      </div>
+    );
   }
 
   return (
     <>
-      <div className="space-y-6 p-6">
-        <div className="rounded bg-white p-6 shadow">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <h2 className="text-2xl font-semibold">Admin — Users</h2>
-              <p className="text-sm text-zinc-600">
-                Create, search, filter and manage users from the admin panel.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleNewUser}
-              disabled={loading}
-              className="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400"
-            >
-              + New User
-            </button>
-          </div>
-
-          {error && <div className="mb-4 rounded bg-red-100 p-4 text-red-800">{error}</div>}
-
-          {success && (
-            <div className="mb-4 rounded bg-green-100 p-4 text-green-800">{success}</div>
-          )}
-
-          {formMode && (
-            <form onSubmit={handleSubmit} className="mb-6 rounded border bg-zinc-50 p-4">
-              <h3 className="mb-4 text-lg font-semibold">
-                {formMode === "create" ? "New User" : "Edit User"}
-              </h3>
-
-              <div className="mb-4 grid gap-4 sm:grid-cols-2">
-                <label className="space-y-1 text-sm">
-                  <span className="font-medium">Full Name *</span>
-                  <input
-                    className="w-full rounded border p-2"
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    disabled={loading}
-                    required
-                  />
-                </label>
-
-                <label className="space-y-1 text-sm">
-                  <span className="font-medium">Email *</span>
-                  <input
-                    type="email"
-                    className="w-full rounded border p-2"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    disabled={loading}
-                    required
-                  />
-                </label>
-
-                <label className="space-y-1 text-sm">
-                  <span className="font-medium">
-                    Password {formMode === "edit" ? "(leave blank to keep current)" : "*"}
-                  </span>
-                  <input
-                    type="password"
-                    className="w-full rounded border p-2"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    disabled={loading}
-                    required={formMode === "create"}
-                  />
-                </label>
-
-                <label className="space-y-1 text-sm">
-                  <span className="font-medium">Role</span>
-                  <select
-                    className="w-full rounded border p-2"
-                    value={role}
-                    onChange={(e) => setRole(e.target.value as Role)}
-                    disabled={loading}
-                  >
-                    {roleOptions.map((item) => (
-                      <option key={item} value={item}>
-                        {item}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+      <div className="min-h-screen bg-zinc-50 p-6">
+        <div className="mx-auto max-w-[1600px] space-y-6">
+          <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-2xl font-semibold text-zinc-900">
+                  Admin — Users
+                </h2>
+                <p className="mt-1 text-sm text-zinc-600">
+                  Create, edit, search, filter and manage users from the admin panel.
+                </p>
               </div>
 
-              <div className="flex gap-2">
-                <button
-                  type="submit"
+              <button
+                type="button"
+                onClick={handleNewUser}
+                disabled={loading}
+                className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400"
+              >
+                + New User
+              </button>
+            </div>
+          </div>
+
+          {(error || success) && (
+            <div className="space-y-3">
+              {error && (
+                <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  {error}
+                </div>
+              )}
+
+              {success && (
+                <div className="rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-700">
+                  {success}
+                </div>
+              )}
+            </div>
+          )}
+
+          <form
+            onSubmit={handleSubmit}
+            className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm"
+          >
+            <div className="mb-6 flex flex-col gap-2 border-b border-zinc-200 pb-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h3 className="text-xl font-semibold text-zinc-900">
+                  {formMode === "create" ? "Create User" : "Edit User"}
+                </h3>
+                <p className="text-sm text-zinc-500">
+                  {formMode === "create"
+                    ? "Fill in the information below to create a new user."
+                    : "Update the selected user's information below."}
+                </p>
+              </div>
+
+              {formMode === "edit" && selectedUserId && (
+                <div className="rounded-lg bg-zinc-100 px-3 py-2 text-xs text-zinc-600">
+                  Editing ID: <span className="font-medium">{selectedUserId}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+              <label className="space-y-2 text-sm">
+                <span className="font-medium text-zinc-700">Full Name *</span>
+                <input
+                  className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
                   disabled={loading}
-                  className="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400"
+                  required
+                />
+              </label>
+
+              <label className="space-y-2 text-sm">
+                <span className="font-medium text-zinc-700">Email *</span>
+                <input
+                  type="email"
+                  className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  disabled={loading}
+                  required
+                />
+              </label>
+
+              <label className="space-y-2 text-sm">
+                <span className="font-medium text-zinc-700">
+                  Password {formMode === "edit" ? "(leave blank to keep current)" : "*"}
+                </span>
+                <input
+                  type="password"
+                  className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={loading}
+                  required={formMode === "create"}
+                />
+              </label>
+
+              <label className="space-y-2 text-sm">
+                <span className="font-medium text-zinc-700">Phone Number</span>
+                <input
+                  type="text"
+                  placeholder="+84123456789"
+                  className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  disabled={loading}
+                />
+              </label>
+
+              <label className="space-y-2 text-sm">
+                <span className="font-medium text-zinc-700">Date of Birth</span>
+                <input
+                  type="date"
+                  className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
+                  value={dateOfBirth}
+                  onChange={(e) => setDateOfBirth(e.target.value)}
+                  disabled={loading}
+                />
+              </label>
+
+              <label className="space-y-2 text-sm">
+                <span className="font-medium text-zinc-700">Gender</span>
+                <select
+                  className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
+                  value={gender}
+                  onChange={(e) => setGender(e.target.value as Gender | "")}
+                  disabled={loading}
                 >
-                  {loading
-                    ? "Saving..."
-                    : formMode === "create"
-                    ? "Create User"
-                    : "Update User"}
+                  <option value="">Not set</option>
+                  {genderOptions.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="space-y-2 text-sm">
+                <span className="font-medium text-zinc-700">Role *</span>
+                <select
+                  className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
+                  value={role}
+                  onChange={(e) => setRole(e.target.value as Role)}
+                  disabled={loading}
+                  required
+                >
+                  {roleOptions.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {formMode === "edit" && (
+                <>
+                  <label className="space-y-2 text-sm">
+                    <span className="font-medium text-zinc-700">Status</span>
+                    <select
+                      className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
+                      value={String(isActive)}
+                      onChange={(e) => setIsActive(e.target.value === "true")}
+                      disabled={loading}
+                    >
+                      <option value="true">Active</option>
+                      <option value="false">Inactive</option>
+                    </select>
+                  </label>
+
+                  <label className="space-y-2 text-sm">
+                    <span className="font-medium text-zinc-700">
+                      Email Verified
+                    </span>
+                    <select
+                      className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
+                      value={String(emailVerified)}
+                      onChange={(e) => setEmailVerified(e.target.value === "true")}
+                      disabled={loading}
+                    >
+                      <option value="true">Verified</option>
+                      <option value="false">Not verified</option>
+                    </select>
+                  </label>
+                </>
+              )}
+
+              <label className="space-y-2 text-sm md:col-span-2 xl:col-span-3">
+                <span className="font-medium text-zinc-700">Avatar URL</span>
+                <input
+                  type="url"
+                  placeholder="https://example.com/avatar.jpg"
+                  className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
+                  value={avatarUrl}
+                  onChange={(e) => setAvatarUrl(e.target.value)}
+                  disabled={loading}
+                />
+              </label>
+            </div>
+
+            {avatarUrl && (
+              <div className="mt-5 flex items-center gap-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                <img
+                  src={avatarUrl}
+                  alt="Avatar preview"
+                  className="h-14 w-14 rounded-full border object-cover"
+                />
+
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-zinc-800">
+                    Avatar Preview
+                  </p>
+                  <p className="truncate text-xs text-zinc-500">{avatarUrl}</p>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+              <button
+                type="submit"
+                disabled={loading}
+                className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400"
+              >
+                {loading
+                  ? "Saving..."
+                  : formMode === "create"
+                  ? "Create User"
+                  : "Update User"}
+              </button>
+
+              <button
+                type="button"
+                onClick={resetForm}
+                disabled={loading}
+                className="rounded-xl border border-zinc-300 bg-white px-5 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Reset Form
+              </button>
+            </div>
+          </form>
+
+          <div className="rounded-2xl border border-zinc-200 bg-white shadow-sm">
+            <div className="border-b border-zinc-200 p-6">
+              <div className="mb-5 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+                <div>
+                  <h3 className="text-xl font-semibold text-zinc-900">
+                    User Datatable
+                  </h3>
+                  <p className="text-sm text-zinc-500">
+                    Showing all user information returned from the admin user API.
+                  </p>
+                </div>
+
+                <div className="text-sm text-zinc-500">
+                  Total: <span className="font-medium text-zinc-800">{total}</span>{" "}
+                  users
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-5">
+                <input
+                  type="text"
+                  placeholder="Search by id, name, email, phone, role..."
+                  className="rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setPage(1);
+                  }}
+                />
+
+                <select
+                  className="rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  value={filterRole}
+                  onChange={(e) => {
+                    setFilterRole(e.target.value as Role | "all");
+                    setPage(1);
+                  }}
+                >
+                  <option value="all">All Roles</option>
+                  {roleOptions.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  className="rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  value={filterActive === "all" ? "all" : String(filterActive)}
+                  onChange={(e) => {
+                    setFilterActive(
+                      e.target.value === "all"
+                        ? "all"
+                        : e.target.value === "true"
+                    );
+                    setPage(1);
+                  }}
+                >
+                  <option value="all">All Status</option>
+                  <option value="true">Active</option>
+                  <option value="false">Inactive</option>
+                </select>
+
+                <select
+                  className="rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  value={
+                    filterEmailVerified === "all"
+                      ? "all"
+                      : String(filterEmailVerified)
+                  }
+                  onChange={(e) => {
+                    setFilterEmailVerified(
+                      e.target.value === "all"
+                        ? "all"
+                        : e.target.value === "true"
+                    );
+                    setPage(1);
+                  }}
+                >
+                  <option value="all">All Verified</option>
+                  <option value="true">Verified</option>
+                  <option value="false">Not verified</option>
+                </select>
+
+                <select
+                  className="rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  value={`${sortBy}-${sortOrder}`}
+                  onChange={(e) => {
+                    const [field, order] = e.target.value.split("-");
+
+                    setSortBy(field as "createdAt" | "fullName" | "email" | "role");
+                    setSortOrder(order as "asc" | "desc");
+                    setPage(1);
+                  }}
+                >
+                  <option value="createdAt-desc">Newest First</option>
+                  <option value="createdAt-asc">Oldest First</option>
+                  <option value="fullName-asc">Name A-Z</option>
+                  <option value="fullName-desc">Name Z-A</option>
+                  <option value="email-asc">Email A-Z</option>
+                  <option value="email-desc">Email Z-A</option>
+                  <option value="role-asc">Role A-Z</option>
+                  <option value="role-desc">Role Z-A</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1750px] border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-zinc-200 bg-zinc-50 text-zinc-600">
+                    <th className="px-4 py-3 text-left font-semibold">Avatar</th>
+                    <th className="px-4 py-3 text-left font-semibold">ID</th>
+                    <th className="px-4 py-3 text-left font-semibold">Full Name</th>
+                    <th className="px-4 py-3 text-left font-semibold">Email</th>
+                    <th className="px-4 py-3 text-left font-semibold">Phone</th>
+                    <th className="px-4 py-3 text-center font-semibold">Gender</th>
+                    <th className="px-4 py-3 text-left font-semibold">
+                      Date of Birth
+                    </th>
+                    <th className="px-4 py-3 text-center font-semibold">Role</th>
+                    <th className="px-4 py-3 text-center font-semibold">Status</th>
+                    <th className="px-4 py-3 text-center font-semibold">
+                      Email Verified
+                    </th>
+                    <th className="px-4 py-3 text-left font-semibold">
+                      Last Login
+                    </th>
+                    <th className="px-4 py-3 text-left font-semibold">
+                      Created At
+                    </th>
+                    <th className="px-4 py-3 text-left font-semibold">
+                      Updated At
+                    </th>
+                    <th className="px-4 py-3 text-center font-semibold">Actions</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {tableLoading ? (
+                    <tr>
+                      <td
+                        colSpan={14}
+                        className="px-4 py-8 text-center text-zinc-500"
+                      >
+                        Loading users...
+                      </td>
+                    </tr>
+                  ) : paginatedUsers.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={14}
+                        className="px-4 py-8 text-center text-zinc-500"
+                      >
+                        No users found
+                      </td>
+                    </tr>
+                  ) : (
+                    paginatedUsers.map((item) => (
+                      <tr
+                        key={item.id}
+                        className={`border-b border-zinc-100 transition hover:bg-zinc-50 ${
+                          selectedUserId === item.id ? "bg-blue-50/60" : ""
+                        }`}
+                      >
+                        <td className="px-4 py-3">
+                          {item.avatarUrl ? (
+                            <img
+                              src={item.avatarUrl}
+                              alt={item.fullName || "User avatar"}
+                              className="h-10 w-10 rounded-full border object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100 text-xs font-semibold text-zinc-500">
+                              N/A
+                            </div>
+                          )}
+                        </td>
+
+                        <td className="max-w-[180px] truncate px-4 py-3 font-mono text-xs text-zinc-500">
+                          {item.id || "-"}
+                        </td>
+
+                        <td className="px-4 py-3 font-medium text-zinc-900">
+                          {item.fullName || "-"}
+                        </td>
+
+                        <td className="px-4 py-3 text-zinc-600">
+                          {item.email || "-"}
+                        </td>
+
+                        <td className="px-4 py-3 text-zinc-600">
+                          {item.phoneNumber || "-"}
+                        </td>
+
+                        <td className="px-4 py-3 text-center">
+                          {item.gender ? (
+                            <span className="inline-flex rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">
+                              {item.gender}
+                            </span>
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+
+                        <td className="px-4 py-3 text-zinc-600">
+                          {formatDateInput(item.dateOfBirth) || "-"}
+                        </td>
+
+                        <td className="px-4 py-3 text-center">
+                          <span className="inline-flex rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">
+                            {item.role || "-"}
+                          </span>
+                        </td>
+
+                        <td className="px-4 py-3 text-center">
+                          <span
+                            className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
+                              item.isActive
+                                ? "bg-green-100 text-green-700"
+                                : "bg-red-100 text-red-700"
+                            }`}
+                          >
+                            {item.isActive ? "Active" : "Inactive"}
+                          </span>
+                        </td>
+
+                        <td className="px-4 py-3 text-center">
+                          <span
+                            className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
+                              item.emailVerified
+                                ? "bg-green-100 text-green-700"
+                                : "bg-yellow-100 text-yellow-700"
+                            }`}
+                          >
+                            {item.emailVerified ? "Verified" : "Not verified"}
+                          </span>
+                        </td>
+
+                        <td className="px-4 py-3 text-zinc-600">
+                          {formatDateTime(item.lastLoginAt)}
+                        </td>
+
+                        <td className="px-4 py-3 text-zinc-600">
+                          {formatDateTime(item.createdAt)}
+                        </td>
+
+                        <td className="px-4 py-3 text-zinc-600">
+                          {formatDateTime(item.updatedAt)}
+                        </td>
+
+                        <td className="px-4 py-3">
+                          <div className="flex justify-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleEdit(item)}
+                              disabled={loading}
+                              className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              Edit
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(item)}
+                              disabled={loading}
+                              className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex flex-col gap-4 border-t border-zinc-200 p-4 md:flex-row md:items-center md:justify-between">
+              <div className="text-sm text-zinc-600">
+                Showing {total === 0 ? 0 : (page - 1) * limit + 1} to{" "}
+                {Math.min(page * limit, total)} of {total} users
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPage(Math.max(1, page - 1))}
+                  disabled={page === 1 || loading || tableLoading}
+                  className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-zinc-400"
+                >
+                  Previous
                 </button>
+
+                <span className="px-2 py-1.5 text-sm text-zinc-600">
+                  Page {page} of {totalPages}
+                </span>
 
                 <button
                   type="button"
-                  onClick={resetForm}
-                  disabled={loading}
-                  className="rounded bg-gray-300 px-4 py-2 text-sm hover:bg-gray-400 disabled:cursor-not-allowed disabled:bg-gray-200"
+                  onClick={() => setPage(Math.min(totalPages, page + 1))}
+                  disabled={page >= totalPages || loading || tableLoading}
+                  className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-zinc-400"
                 >
-                  Cancel
+                  Next
                 </button>
+
+                <select
+                  value={limit}
+                  onChange={(e) => {
+                    setLimit(Number(e.target.value));
+                    setPage(1);
+                  }}
+                  className="rounded-lg border border-zinc-300 px-2 py-1.5 text-sm outline-none"
+                  disabled={loading || tableLoading}
+                >
+                  <option value={5}>5/page</option>
+                  <option value={10}>10/page</option>
+                  <option value={20}>20/page</option>
+                  <option value={50}>50/page</option>
+                </select>
               </div>
-            </form>
-          )}
-
-          <div className="mb-6 grid gap-4 sm:grid-cols-4">
-            <input
-              type="text"
-              placeholder="Search users..."
-              className="rounded border p-2 text-sm"
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-            />
-
-            <select
-              className="rounded border p-2 text-sm"
-              value={filterRole}
-              onChange={(e) => {
-                setFilterRole(e.target.value as Role | "all");
-                setPage(1);
-              }}
-            >
-              <option value="all">All Roles</option>
-              {roleOptions.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-
-            <select
-              className="rounded border p-2 text-sm"
-              value={filterActive === "all" ? "all" : String(filterActive)}
-              onChange={(e) => {
-                setFilterActive(e.target.value === "all" ? "all" : e.target.value === "true");
-                setPage(1);
-              }}
-            >
-              <option value="all">All Status</option>
-              <option value="true">Active</option>
-              <option value="false">Inactive</option>
-            </select>
-
-            <select
-              className="rounded border p-2 text-sm"
-              value={`${sortBy}-${sortOrder}`}
-              onChange={(e) => {
-                const [field, order] = e.target.value.split("-");
-
-                setSortBy(field as "createdAt" | "fullName" | "email" | "role");
-                setSortOrder(order as "asc" | "desc");
-                setPage(1);
-              }}
-            >
-              <option value="createdAt-desc">Newest First</option>
-              <option value="createdAt-asc">Oldest First</option>
-              <option value="fullName-asc">Name A-Z</option>
-              <option value="fullName-desc">Name Z-A</option>
-              <option value="email-asc">Email A-Z</option>
-              <option value="email-desc">Email Z-A</option>
-              <option value="role-asc">Role A-Z</option>
-              <option value="role-desc">Role Z-A</option>
-            </select>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                <tr className="border-b bg-zinc-100">
-                  <th className="p-2 text-left">Name</th>
-                  <th className="p-2 text-left">Email</th>
-                  <th className="p-2 text-center">Role</th>
-                  <th className="p-2 text-center">Status</th>
-                  <th className="p-2 text-center">Actions</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {tableLoading ? (
-                  <tr>
-                    <td colSpan={5} className="p-4 text-center text-zinc-500">
-                      Loading users...
-                    </td>
-                  </tr>
-                ) : paginatedUsers.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="p-4 text-center text-zinc-500">
-                      No users found
-                    </td>
-                  </tr>
-                ) : (
-                  paginatedUsers.map((item) => (
-                    <tr key={item.id} className="border-b hover:bg-zinc-50">
-                      <td className="p-2 font-medium">{item.fullName || "-"}</td>
-
-                      <td className="p-2 text-zinc-600">{item.email || "-"}</td>
-
-                      <td className="p-2 text-center">
-                        <span className="inline-block rounded bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700">
-                          {item.role || "-"}
-                        </span>
-                      </td>
-
-                      <td className="p-2 text-center">
-                        <span
-                          className={`inline-block rounded px-2 py-1 text-xs font-medium ${
-                            item.isActive
-                              ? "bg-green-100 text-green-800"
-                              : "bg-red-100 text-red-800"
-                          }`}
-                        >
-                          {item.isActive ? "Active" : "Inactive"}
-                        </span>
-                      </td>
-
-                      <td className="space-x-2 p-2 text-center">
-                        <button
-                          type="button"
-                          onClick={() => handleEdit(item)}
-                          disabled={loading}
-                          className="text-xs font-medium text-blue-600 hover:text-blue-800 disabled:text-gray-400"
-                        >
-                          Edit
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(item)}
-                          disabled={loading}
-                          className="text-xs font-medium text-red-600 hover:text-red-800 disabled:text-gray-400"
-                        >
-                          Delete
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="mt-4 flex items-center justify-between">
-            <div className="text-sm text-zinc-600">
-              Showing {total === 0 ? 0 : (page - 1) * limit + 1} to{" "}
-              {Math.min(page * limit, total)} of {total} users
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setPage(Math.max(1, page - 1))}
-                disabled={page === 1 || loading || tableLoading}
-                className="rounded border px-3 py-1 text-sm hover:bg-zinc-100 disabled:bg-gray-100"
-              >
-                Previous
-              </button>
-
-              <span className="px-3 py-1 text-sm">
-                Page {page} of {totalPages}
-              </span>
-
-              <button
-                type="button"
-                onClick={() => setPage(Math.min(totalPages, page + 1))}
-                disabled={page >= totalPages || loading || tableLoading}
-                className="rounded border px-3 py-1 text-sm hover:bg-zinc-100 disabled:bg-gray-100"
-              >
-                Next
-              </button>
-
-              <select
-                value={limit}
-                onChange={(e) => {
-                  setLimit(Number(e.target.value));
-                  setPage(1);
-                }}
-                className="rounded border p-1 text-sm"
-                disabled={loading || tableLoading}
-              >
-                <option value={5}>5/page</option>
-                <option value={10}>10/page</option>
-                <option value={20}>20/page</option>
-                <option value={50}>50/page</option>
-              </select>
             </div>
           </div>
         </div>
@@ -662,9 +1113,13 @@ export default function AdminUsersPage() {
                 {getModalIcon()}
               </div>
 
-              <h3 className="text-lg font-semibold text-zinc-900">{confirmModal.title}</h3>
+              <h3 className="text-lg font-semibold text-zinc-900">
+                {confirmModal.title}
+              </h3>
 
-              <p className="mt-2 text-sm leading-6 text-zinc-600">{confirmModal.message}</p>
+              <p className="mt-2 text-sm leading-6 text-zinc-600">
+                {confirmModal.message}
+              </p>
             </div>
 
             <div className="flex justify-end gap-3">

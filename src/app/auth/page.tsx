@@ -153,8 +153,57 @@ export default function AuthPage() {
   function handleGoogleLogin() {
     const backendUrl =
       process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api";
+    
+    const googleAuthUrl = `${backendUrl}/v1/auth/google`;
+    const width = 500;
+    const height = 600;
+    const left = window.screenX + (window.outerWidth - width) / 2;
+    const top = window.screenY + (window.outerHeight - height) / 2;
 
-    window.location.href = `${backendUrl}/auth/google`;
+    // Open Google auth in popup window
+    const popup = window.open(
+      googleAuthUrl,
+      "google-login",
+      `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+    );
+
+    if (!popup) {
+      setError("Please allow popups for Google login");
+      return;
+    }
+
+    // Listen for message from popup with token
+    const handleMessage = (event: MessageEvent) => {
+      // Only accept messages from same origin
+      if (event.origin !== window.location.origin) return;
+
+      if (event.data.type === "GOOGLE_LOGIN_SUCCESS") {
+        const token = event.data.token;
+        if (token) {
+          localStorage.setItem("accessToken", token);
+          if (event.data.user) {
+            localStorage.setItem("user", JSON.stringify(event.data.user));
+          }
+          popup?.close();
+          window.removeEventListener("message", handleMessage);
+          router.push("/dashboard");
+        }
+      } else if (event.data.type === "GOOGLE_LOGIN_ERROR") {
+        setError(event.data.message || "Google login failed");
+        popup?.close();
+        window.removeEventListener("message", handleMessage);
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+
+    // Fallback: Check if popup closed
+    const popupCheckInterval = setInterval(() => {
+      if (popup?.closed) {
+        clearInterval(popupCheckInterval);
+        window.removeEventListener("message", handleMessage);
+      }
+    }, 1000);
   }
 
   return (

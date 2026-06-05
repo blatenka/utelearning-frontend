@@ -127,4 +127,27 @@ api.interceptors.response.use(
   }
 );
 
+// ============ Course APIs ============
+export const courseAPI = {
+  // Get all public courses
+  getPublicCourses: (params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    categoryId?: string;
+  }) => {
+    return api.get("/v1/courses/public", { params });
+  },
+
+  // Get course by slug
+  getCourseBySlug: (slug: string) => {
+    return api.get(`/v1/courses/public/${slug}`);
+  },
+
+  // Get category tree
+  getCategoryTree: () => {
+    return api.get("/v1/courses/public/category-tree");
+  },
+};
+
 export default api;

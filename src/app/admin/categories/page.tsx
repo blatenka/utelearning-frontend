@@ -13,14 +13,17 @@ type Category = {
   parentName?: string;
   order: number;
   isActive: boolean;
-  createdAt: Date;
-  updatedAt: Date;
-  deletedAt?: Date | null;
+  createdAt: Date | string;
+  updatedAt: Date | string;
+  deletedAt?: Date | string | null;
   courseCount?: number;
   childrenCount?: number;
 };
 
-type FormMode = "create" | "edit" | null;
+type FormMode = "create" | "edit";
+
+type SortBy = "name" | "order" | "createdAt" | "updatedAt";
+type SortOrder = "asc" | "desc";
 
 type ConfirmModalState = {
   open: boolean;
@@ -44,19 +47,24 @@ export default function AdminCategoriesPage() {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [total, setTotal] = useState(0);
+
   const [search, setSearch] = useState("");
   const [filterActive, setFilterActive] = useState<boolean | "all">("all");
   const [includeDeleted, setIncludeDeleted] = useState(false);
-  const [sortBy, setSortBy] = useState<"createdAt" | "name" | "order">("createdAt");
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [sortBy, setSortBy] = useState<SortBy>("createdAt");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
 
-  const [formMode, setFormMode] = useState<FormMode>(null);
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  const [formMode, setFormMode] = useState<FormMode>("create");
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(
+    null
+  );
 
   const [formData, setFormData] = useState({
     name: "",
     description: "",
     parentId: "",
+    order: "0",
+    isActive: "true",
   });
 
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({
@@ -70,6 +78,32 @@ export default function AdminCategoriesPage() {
 
   const isAdmin = user?.role === "ADMIN";
   const totalPages = Math.max(1, Math.ceil(total / limit));
+
+  const formatDateTime = (value?: Date | string | null) => {
+    if (!value) return "-";
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) return "-";
+
+    return date.toLocaleString("vi-VN", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  const getErrorMessage = (err: any, fallback: string) => {
+    const message = err?.response?.data?.message;
+
+    if (Array.isArray(message)) {
+      return message.join(", ");
+    }
+
+    return message || fallback;
+  };
 
   const loadCategories = async () => {
     setTableLoading(true);
@@ -88,7 +122,7 @@ export default function AdminCategoriesPage() {
       }
 
       if (filterActive !== "all") {
-        params.append("isActive", filterActive.toString());
+        params.append("isActive", String(filterActive));
       }
 
       if (includeDeleted) {
@@ -100,7 +134,7 @@ export default function AdminCategoriesPage() {
       setCategories(res.data?.data?.data || []);
       setTotal(res.data?.data?.meta?.total || 0);
     } catch (err: any) {
-      setError(err?.response?.data?.message || "Failed to load categories");
+      setError(getErrorMessage(err, "Failed to load categories"));
     } finally {
       setTableLoading(false);
     }
@@ -108,6 +142,7 @@ export default function AdminCategoriesPage() {
 
   useEffect(() => {
     if (!isAdmin) return;
+
     loadCategories();
   }, [isAdmin, page, limit, search, filterActive, includeDeleted, sortBy, sortOrder]);
 
@@ -133,25 +168,20 @@ export default function AdminCategoriesPage() {
   };
 
   const resetForm = () => {
-    setFormMode(null);
-    setSelectedCategoryId(null);
-    setFormData({
-      name: "",
-      description: "",
-      parentId: "",
-    });
-    setError(null);
-  };
-
-  const handleNewCategory = () => {
     setFormMode("create");
     setSelectedCategoryId(null);
     setFormData({
       name: "",
       description: "",
       parentId: "",
+      order: "0",
+      isActive: "true",
     });
     setError(null);
+  };
+
+  const handleNewCategory = () => {
+    resetForm();
     setSuccess(null);
 
     window.scrollTo({
@@ -165,9 +195,11 @@ export default function AdminCategoriesPage() {
     setSelectedCategoryId(category.id);
 
     setFormData({
-      name: category.name,
+      name: category.name || "",
       description: category.description || "",
       parentId: category.parentId || "",
+      order: String(category.order ?? 0),
+      isActive: String(Boolean(category.isActive)),
     });
 
     setError(null);
@@ -177,6 +209,96 @@ export default function AdminCategoriesPage() {
       top: 0,
       behavior: "smooth",
     });
+  };
+
+  const buildCreatePayload = () => {
+    const payload: {
+      name: string;
+      description?: string;
+      parentId?: string;
+    } = {
+      name: formData.name.trim(),
+    };
+
+    if (formData.description.trim()) {
+      payload.description = formData.description.trim();
+    }
+
+    if (formData.parentId) {
+      payload.parentId = formData.parentId;
+    }
+
+    return payload;
+  };
+
+  const buildUpdatePayload = () => {
+    const payload: {
+      name?: string;
+      description?: string | null;
+      parentId?: string | null;
+      order?: number;
+      isActive?: boolean;
+    } = {
+      name: formData.name.trim(),
+      description: formData.description.trim() || null,
+      parentId: formData.parentId || null,
+      order: Number(formData.order),
+      isActive: formData.isActive === "true",
+    };
+
+    return payload;
+  };
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
+
+    if (!formData.name.trim()) {
+      setError("Category name is required");
+      setLoading(false);
+      return;
+    }
+
+    if (formData.name.trim().length > 100 && formMode === "create") {
+      setError("Category name must be shorter than 100 characters");
+      setLoading(false);
+      return;
+    }
+
+    if (formData.description.trim().length > 500 && formMode === "create") {
+      setError("Description must be shorter than 500 characters");
+      setLoading(false);
+      return;
+    }
+
+    if (formMode === "edit" && Number.isNaN(Number(formData.order))) {
+      setError("Order must be a number");
+      setLoading(false);
+      return;
+    }
+
+    try {
+      if (formMode === "create") {
+        await api.post("/v1/categories", buildCreatePayload());
+        setSuccess("Category created successfully");
+      }
+
+      if (formMode === "edit" && selectedCategoryId) {
+        await api.patch(`/v1/categories/${selectedCategoryId}`, buildUpdatePayload());
+        setSuccess("Category updated successfully");
+      }
+
+      resetForm();
+      setPage(1);
+      await loadCategories();
+    } catch (err: any) {
+      setError(getErrorMessage(err, "Save failed"));
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSoftDelete = (category: Category) => {
@@ -194,10 +316,15 @@ export default function AdminCategoriesPage() {
         try {
           await api.patch(`/v1/categories/${category.id}/soft-delete`);
           setSuccess("Category soft deleted");
+
+          if (selectedCategoryId === category.id) {
+            resetForm();
+          }
+
           await loadCategories();
           closeConfirmModal();
         } catch (err: any) {
-          setError(err?.response?.data?.message || "Delete failed");
+          setError(getErrorMessage(err, "Delete failed"));
         } finally {
           setLoading(false);
         }
@@ -223,7 +350,7 @@ export default function AdminCategoriesPage() {
           await loadCategories();
           closeConfirmModal();
         } catch (err: any) {
-          setError(err?.response?.data?.message || "Restore failed");
+          setError(getErrorMessage(err, "Restore failed"));
         } finally {
           setLoading(false);
         }
@@ -253,63 +380,23 @@ export default function AdminCategoriesPage() {
           });
 
           setSuccess(`Category ${nextStatus ? "activated" : "deactivated"}`);
+
+          if (selectedCategoryId === category.id) {
+            setFormData((prev) => ({
+              ...prev,
+              isActive: String(nextStatus),
+            }));
+          }
+
           await loadCategories();
           closeConfirmModal();
         } catch (err: any) {
-          setError(err?.response?.data?.message || "Update failed");
+          setError(getErrorMessage(err, "Update failed"));
         } finally {
           setLoading(false);
         }
       },
     });
-  };
-
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-
-    setLoading(true);
-    setError(null);
-    setSuccess(null);
-
-    if (!formData.name.trim()) {
-      setError("Category name is required");
-      setLoading(false);
-      return;
-    }
-
-    try {
-      const payload: {
-        name: string;
-        description?: string;
-        parentId?: string;
-      } = {
-        name: formData.name.trim(),
-      };
-
-      if (formData.description.trim()) {
-        payload.description = formData.description.trim();
-      }
-
-      if (formData.parentId) {
-        payload.parentId = formData.parentId;
-      }
-
-      if (formMode === "create") {
-        await api.post("/v1/categories", payload);
-        setSuccess("Category created successfully");
-      } else if (formMode === "edit" && selectedCategoryId) {
-        await api.patch(`/v1/categories/${selectedCategoryId}`, payload);
-        setSuccess("Category updated successfully");
-      }
-
-      resetForm();
-      setPage(1);
-      await loadCategories();
-    } catch (err: any) {
-      setError(err?.response?.data?.message || "Save failed");
-    } finally {
-      setLoading(false);
-    }
   };
 
   const getModalIconStyle = () => {
@@ -355,90 +442,173 @@ export default function AdminCategoriesPage() {
   }
 
   if (!isAdmin) {
-    return <div className="p-6 text-center text-red-500">Access denied. Admins only.</div>;
+    return (
+      <div className="p-6 text-center text-red-500">
+        Access denied. Admins only.
+      </div>
+    );
   }
 
   return (
     <>
-      <div className="space-y-6 p-6">
-        <div className="rounded bg-white p-6 shadow">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <h2 className="text-2xl font-semibold">Admin — Categories</h2>
-              <p className="text-sm text-zinc-600">Manage course categories</p>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleNewCategory}
-              disabled={loading}
-              className="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400"
-            >
-              + New Category
-            </button>
-          </div>
-
-          {error && <div className="mb-4 rounded bg-red-100 p-4 text-red-800">{error}</div>}
-
-          {success && (
-            <div className="mb-4 rounded bg-green-100 p-4 text-green-800">{success}</div>
-          )}
-
-          {formMode && (
-            <form onSubmit={handleSubmit} className="mb-6 rounded border bg-zinc-50 p-4">
-              <h3 className="mb-4 text-lg font-semibold">
-                {formMode === "create" ? "New Category" : "Edit Category"}
-              </h3>
-
-              <div className="mb-4 grid gap-4 sm:grid-cols-2">
-                <label className="space-y-1 text-sm">
-                  <span className="font-medium">Category Name *</span>
-                  <input
-                    type="text"
-                    className="w-full rounded border p-2"
-                    value={formData.name}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        name: e.target.value,
-                      })
-                    }
-                    disabled={loading}
-                    required
-                  />
-                </label>
-
-                <label className="space-y-1 text-sm">
-                  <span className="font-medium">Parent Category Optional</span>
-                  <select
-                    className="w-full rounded border p-2"
-                    value={formData.parentId}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        parentId: e.target.value,
-                      })
-                    }
-                    disabled={loading}
-                  >
-                    <option value="">None Top-level</option>
-
-                    {categories
-                      .filter((category) => category.id !== selectedCategoryId && !category.parentId)
-                      .map((category) => (
-                        <option key={category.id} value={category.id}>
-                          {category.name}
-                        </option>
-                      ))}
-                  </select>
-                </label>
+      <div className="min-h-screen bg-zinc-50 p-6">
+        <div className="mx-auto max-w-[1500px] space-y-6">
+          <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-2xl font-semibold text-zinc-900">
+                  Admin — Categories
+                </h2>
+                <p className="mt-1 text-sm text-zinc-600">
+                  Create, edit, search, filter and manage course categories.
+                </p>
               </div>
 
-              <label className="w-full space-y-1 text-sm">
-                <span className="font-medium">Description</span>
+              <button
+                type="button"
+                onClick={handleNewCategory}
+                disabled={loading}
+                className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400"
+              >
+                + New Category
+              </button>
+            </div>
+          </div>
+
+          {(error || success) && (
+            <div className="space-y-3">
+              {error && (
+                <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  {error}
+                </div>
+              )}
+
+              {success && (
+                <div className="rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-700">
+                  {success}
+                </div>
+              )}
+            </div>
+          )}
+
+          <form
+            onSubmit={handleSubmit}
+            className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm"
+          >
+            <div className="mb-6 flex flex-col gap-2 border-b border-zinc-200 pb-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h3 className="text-xl font-semibold text-zinc-900">
+                  {formMode === "create" ? "Create Category" : "Edit Category"}
+                </h3>
+                <p className="text-sm text-zinc-500">
+                  {formMode === "create"
+                    ? "Create DTO only sends name, description and parentId."
+                    : "Update DTO can change name, description, parent, order and active status."}
+                </p>
+              </div>
+
+              {formMode === "edit" && selectedCategoryId && (
+                <div className="rounded-lg bg-zinc-100 px-3 py-2 text-xs text-zinc-600">
+                  Editing ID:{" "}
+                  <span className="font-medium">{selectedCategoryId}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+              <label className="space-y-2 text-sm xl:col-span-2">
+                <span className="font-medium text-zinc-700">
+                  Category Name *
+                </span>
+                <input
+                  type="text"
+                  maxLength={formMode === "create" ? 100 : 255}
+                  className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
+                  value={formData.name}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      name: e.target.value,
+                    })
+                  }
+                  disabled={loading}
+                  required
+                />
+              </label>
+
+              <label className="space-y-2 text-sm xl:col-span-2">
+                <span className="font-medium text-zinc-700">
+                  Parent Category
+                </span>
+                <select
+                  className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
+                  value={formData.parentId}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      parentId: e.target.value,
+                    })
+                  }
+                  disabled={loading}
+                >
+                  <option value="">None Top-level</option>
+
+                  {categories
+                    .filter(
+                      (category) =>
+                        category.id !== selectedCategoryId && !category.deletedAt
+                    )
+                    .map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+
+              {formMode === "edit" && (
+                <>
+                  <label className="space-y-2 text-sm">
+                    <span className="font-medium text-zinc-700">Order</span>
+                    <input
+                      type="number"
+                      className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
+                      value={formData.order}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          order: e.target.value,
+                        })
+                      }
+                      disabled={loading}
+                    />
+                  </label>
+
+                  <label className="space-y-2 text-sm">
+                    <span className="font-medium text-zinc-700">Status</span>
+                    <select
+                      className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
+                      value={formData.isActive}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          isActive: e.target.value,
+                        })
+                      }
+                      disabled={loading}
+                    >
+                      <option value="true">Active</option>
+                      <option value="false">Inactive</option>
+                    </select>
+                  </label>
+                </>
+              )}
+
+              <label className="space-y-2 text-sm md:col-span-2 xl:col-span-3">
+                <span className="font-medium text-zinc-700">Description</span>
                 <textarea
-                  className="w-full rounded border p-2"
-                  rows={3}
+                  maxLength={formMode === "create" ? 500 : undefined}
+                  className="min-h-[110px] w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
                   value={formData.description}
                   onChange={(e) =>
                     setFormData({
@@ -448,232 +618,397 @@ export default function AdminCategoriesPage() {
                   }
                   disabled={loading}
                 />
+                {formMode === "create" && (
+                  <p className="text-xs text-zinc-500">
+                    {formData.description.length}/500 characters
+                  </p>
+                )}
               </label>
 
-              <div className="mt-4 flex gap-2">
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400"
+              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-sm md:col-span-2 xl:col-span-1">
+                <p className="font-medium text-zinc-800">Category Preview</p>
+
+                <div className="mt-4 space-y-3">
+                  <div>
+                    <p className="text-xs text-zinc-500">Name</p>
+                    <p className="font-medium text-zinc-800">
+                      {formData.name.trim() || "New category"}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-xs text-zinc-500">Parent</p>
+                    <p className="font-medium text-zinc-800">
+                      {categories.find((item) => item.id === formData.parentId)
+                        ?.name || "Top-level category"}
+                    </p>
+                  </div>
+
+                  {formMode === "edit" && (
+                    <>
+                      <div>
+                        <p className="text-xs text-zinc-500">Order</p>
+                        <p className="font-medium text-zinc-800">
+                          {formData.order || "0"}
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-xs text-zinc-500">Status</p>
+                        <span
+                          className={`mt-1 inline-flex rounded-full px-3 py-1 text-xs font-medium ${
+                            formData.isActive === "true"
+                              ? "bg-green-100 text-green-700"
+                              : "bg-red-100 text-red-700"
+                          }`}
+                        >
+                          {formData.isActive === "true" ? "Active" : "Inactive"}
+                        </span>
+                      </div>
+                    </>
+                  )}
+
+                  <div>
+                    <p className="text-xs text-zinc-500">Description</p>
+                    <p className="line-clamp-3 text-zinc-700">
+                      {formData.description.trim() || "No description"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+              <button
+                type="submit"
+                disabled={loading}
+                className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400"
+              >
+                {loading
+                  ? "Saving..."
+                  : formMode === "create"
+                  ? "Create Category"
+                  : "Update Category"}
+              </button>
+
+              <button
+                type="button"
+                onClick={resetForm}
+                disabled={loading}
+                className="rounded-xl border border-zinc-300 bg-white px-5 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Reset Form
+              </button>
+            </div>
+          </form>
+
+          <div className="rounded-2xl border border-zinc-200 bg-white shadow-sm">
+            <div className="border-b border-zinc-200 p-6">
+              <div className="mb-5 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+                <div>
+                  <h3 className="text-xl font-semibold text-zinc-900">
+                    Category Datatable
+                  </h3>
+                  <p className="text-sm text-zinc-500">
+                    Showing all category information returned from the category API.
+                  </p>
+                </div>
+
+                <div className="text-sm text-zinc-500">
+                  Total:{" "}
+                  <span className="font-medium text-zinc-800">{total}</span>{" "}
+                  categories
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-4">
+                <input
+                  type="text"
+                  placeholder="Search categories..."
+                  className="rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setPage(1);
+                  }}
+                />
+
+                <select
+                  className="rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  value={filterActive === "all" ? "all" : String(filterActive)}
+                  onChange={(e) => {
+                    setFilterActive(
+                      e.target.value === "all"
+                        ? "all"
+                        : e.target.value === "true"
+                    );
+                    setPage(1);
+                  }}
                 >
-                  {loading ? "Saving..." : "Save"}
+                  <option value="all">All Status</option>
+                  <option value="true">Active</option>
+                  <option value="false">Inactive</option>
+                </select>
+
+                <label className="flex items-center gap-3 rounded-xl border border-zinc-300 px-3 py-2.5 text-sm text-zinc-700">
+                  <input
+                    type="checkbox"
+                    checked={includeDeleted}
+                    onChange={(e) => {
+                      setIncludeDeleted(e.target.checked);
+                      setPage(1);
+                    }}
+                  />
+                  Show Deleted
+                </label>
+
+                <select
+                  className="rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  value={`${sortBy}-${sortOrder}`}
+                  onChange={(e) => {
+                    const [field, order] = e.target.value.split("-");
+
+                    setSortBy(field as SortBy);
+                    setSortOrder(order as SortOrder);
+                    setPage(1);
+                  }}
+                >
+                  <option value="createdAt-desc">Newest First</option>
+                  <option value="createdAt-asc">Oldest First</option>
+                  <option value="updatedAt-desc">Recently Updated</option>
+                  <option value="updatedAt-asc">Oldest Updated</option>
+                  <option value="name-asc">Name A-Z</option>
+                  <option value="name-desc">Name Z-A</option>
+                  <option value="order-asc">Order Asc</option>
+                  <option value="order-desc">Order Desc</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1550px] border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-zinc-200 bg-zinc-50 text-zinc-600">
+                    <th className="px-4 py-3 text-left font-semibold">ID</th>
+                    <th className="px-4 py-3 text-left font-semibold">Name</th>
+                    <th className="px-4 py-3 text-left font-semibold">Slug</th>
+                    <th className="px-4 py-3 text-left font-semibold">
+                      Description
+                    </th>
+                    <th className="px-4 py-3 text-left font-semibold">
+                      Parent ID
+                    </th>
+                    <th className="px-4 py-3 text-left font-semibold">
+                      Parent Name
+                    </th>
+                    <th className="px-4 py-3 text-center font-semibold">Order</th>
+                    <th className="px-4 py-3 text-center font-semibold">Status</th>
+                    <th className="px-4 py-3 text-center font-semibold">Courses</th>
+                    <th className="px-4 py-3 text-center font-semibold">
+                      Children
+                    </th>
+                    <th className="px-4 py-3 text-left font-semibold">
+                      Created At
+                    </th>
+                    <th className="px-4 py-3 text-left font-semibold">
+                      Updated At
+                    </th>
+                    <th className="px-4 py-3 text-left font-semibold">
+                      Deleted At
+                    </th>
+                    <th className="px-4 py-3 text-center font-semibold">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {tableLoading ? (
+                    <tr>
+                      <td
+                        colSpan={14}
+                        className="px-4 py-8 text-center text-zinc-500"
+                      >
+                        Loading categories...
+                      </td>
+                    </tr>
+                  ) : categories.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={14}
+                        className="px-4 py-8 text-center text-zinc-500"
+                      >
+                        No categories found
+                      </td>
+                    </tr>
+                  ) : (
+                    categories.map((category) => (
+                      <tr
+                        key={category.id}
+                        className={`border-b border-zinc-100 transition hover:bg-zinc-50 ${
+                          selectedCategoryId === category.id ? "bg-blue-50/60" : ""
+                        } ${category.deletedAt ? "opacity-75" : ""}`}
+                      >
+                        <td className="max-w-[180px] truncate px-4 py-3 font-mono text-xs text-zinc-500">
+                          {category.id || "-"}
+                        </td>
+
+                        <td className="px-4 py-3 font-medium text-zinc-900">
+                          <div className="flex items-center gap-2">
+                            <span>{category.name || "-"}</span>
+
+                            {category.deletedAt && (
+                              <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-700">
+                                DELETED
+                              </span>
+                            )}
+                          </div>
+                        </td>
+
+                        <td className="max-w-[180px] truncate px-4 py-3 text-xs text-zinc-600">
+                          {category.slug || "-"}
+                        </td>
+
+                        <td className="max-w-[260px] truncate px-4 py-3 text-zinc-600">
+                          {category.description || "-"}
+                        </td>
+
+                        <td className="max-w-[180px] truncate px-4 py-3 font-mono text-xs text-zinc-500">
+                          {category.parentId || "-"}
+                        </td>
+
+                        <td className="px-4 py-3 text-zinc-600">
+                          {category.parentName || "-"}
+                        </td>
+
+                        <td className="px-4 py-3 text-center text-zinc-700">
+                          {category.order ?? 0}
+                        </td>
+
+                        <td className="px-4 py-3 text-center">
+                          <span
+                            className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
+                              category.isActive
+                                ? "bg-green-100 text-green-700"
+                                : "bg-red-100 text-red-700"
+                            }`}
+                          >
+                            {category.isActive ? "Active" : "Inactive"}
+                          </span>
+                        </td>
+
+                        <td className="px-4 py-3 text-center text-zinc-700">
+                          {category.courseCount || 0}
+                        </td>
+
+                        <td className="px-4 py-3 text-center text-zinc-700">
+                          {category.childrenCount || 0}
+                        </td>
+
+                        <td className="px-4 py-3 text-zinc-600">
+                          {formatDateTime(category.createdAt)}
+                        </td>
+
+                        <td className="px-4 py-3 text-zinc-600">
+                          {formatDateTime(category.updatedAt)}
+                        </td>
+
+                        <td className="px-4 py-3 text-zinc-600">
+                          {formatDateTime(category.deletedAt)}
+                        </td>
+
+                        <td className="px-4 py-3">
+                          <div className="flex justify-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleEdit(category)}
+                              disabled={loading || Boolean(category.deletedAt)}
+                              className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              Edit
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleToggleActive(category)}
+                              disabled={loading || Boolean(category.deletedAt)}
+                              className="rounded-lg border border-yellow-200 bg-yellow-50 px-3 py-1.5 text-xs font-medium text-yellow-700 transition hover:bg-yellow-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {category.isActive ? "Deactivate" : "Activate"}
+                            </button>
+
+                            {!category.deletedAt ? (
+                              <button
+                                type="button"
+                                onClick={() => handleSoftDelete(category)}
+                                disabled={loading}
+                                className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                Delete
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleRestore(category)}
+                                disabled={loading}
+                                className="rounded-lg border border-green-200 bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700 transition hover:bg-green-100 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                Restore
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex flex-col gap-4 border-t border-zinc-200 p-4 md:flex-row md:items-center md:justify-between">
+              <div className="text-sm text-zinc-600">
+                Showing {total === 0 ? 0 : (page - 1) * limit + 1} to{" "}
+                {Math.min(page * limit, total)} of {total} categories
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPage(Math.max(1, page - 1))}
+                  disabled={page === 1 || loading || tableLoading}
+                  className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-zinc-400"
+                >
+                  Previous
                 </button>
+
+                <span className="px-2 py-1.5 text-sm text-zinc-600">
+                  Page {page} of {totalPages}
+                </span>
 
                 <button
                   type="button"
-                  onClick={resetForm}
-                  disabled={loading}
-                  className="rounded bg-gray-300 px-4 py-2 text-sm hover:bg-gray-400 disabled:cursor-not-allowed disabled:bg-gray-200"
+                  onClick={() => setPage(Math.min(totalPages, page + 1))}
+                  disabled={page >= totalPages || loading || tableLoading}
+                  className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-zinc-400"
                 >
-                  Cancel
+                  Next
                 </button>
+
+                <select
+                  value={limit}
+                  onChange={(e) => {
+                    setLimit(Number(e.target.value));
+                    setPage(1);
+                  }}
+                  className="rounded-lg border border-zinc-300 px-2 py-1.5 text-sm outline-none"
+                  disabled={loading || tableLoading}
+                >
+                  <option value={5}>5/page</option>
+                  <option value={10}>10/page</option>
+                  <option value={20}>20/page</option>
+                  <option value={50}>50/page</option>
+                </select>
               </div>
-            </form>
-          )}
-
-          <div className="mb-6 grid gap-4 sm:grid-cols-4">
-            <input
-              type="text"
-              placeholder="Search categories..."
-              className="rounded border p-2 text-sm"
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-            />
-
-            <select
-              className="rounded border p-2 text-sm"
-              value={filterActive === "all" ? "all" : String(filterActive)}
-              onChange={(e) => {
-                setFilterActive(e.target.value === "all" ? "all" : e.target.value === "true");
-                setPage(1);
-              }}
-            >
-              <option value="all">All Status</option>
-              <option value="true">Active</option>
-              <option value="false">Inactive</option>
-            </select>
-
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={includeDeleted}
-                onChange={(e) => {
-                  setIncludeDeleted(e.target.checked);
-                  setPage(1);
-                }}
-              />
-              Show Deleted
-            </label>
-
-            <select
-              className="rounded border p-2 text-sm"
-              value={`${sortBy}-${sortOrder}`}
-              onChange={(e) => {
-                const [field, order] = e.target.value.split("-");
-
-                setSortBy(field as "createdAt" | "name" | "order");
-                setSortOrder(order as "asc" | "desc");
-                setPage(1);
-              }}
-            >
-              <option value="createdAt-desc">Newest First</option>
-              <option value="createdAt-asc">Oldest First</option>
-              <option value="name-asc">Name A-Z</option>
-              <option value="name-desc">Name Z-A</option>
-              <option value="order-asc">Order Asc</option>
-              <option value="order-desc">Order Desc</option>
-            </select>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                <tr className="border-b bg-zinc-100">
-                  <th className="p-2 text-left">Name</th>
-                  <th className="p-2 text-left">Slug</th>
-                  <th className="p-2 text-left">Parent</th>
-                  <th className="p-2 text-center">Order</th>
-                  <th className="p-2 text-center">Status</th>
-                  <th className="p-2 text-center">Courses</th>
-                  <th className="p-2 text-center">Actions</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {tableLoading ? (
-                  <tr>
-                    <td colSpan={7} className="p-4 text-center text-zinc-500">
-                      Loading categories...
-                    </td>
-                  </tr>
-                ) : categories.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="p-4 text-center text-zinc-500">
-                      No categories found
-                    </td>
-                  </tr>
-                ) : (
-                  categories.map((category) => (
-                    <tr key={category.id} className="border-b hover:bg-zinc-50">
-                      <td className="p-2 font-medium">
-                        {category.name}
-                        {category.deletedAt && (
-                          <span className="ml-2 text-red-500">[DELETED]</span>
-                        )}
-                      </td>
-
-                      <td className="p-2 text-xs text-zinc-600">{category.slug}</td>
-
-                      <td className="p-2 text-sm">{category.parentName || "-"}</td>
-
-                      <td className="p-2 text-center">{category.order}</td>
-
-                      <td className="p-2 text-center">
-                        <span
-                          className={`inline-block rounded px-2 py-1 text-xs font-medium ${
-                            category.isActive
-                              ? "bg-green-100 text-green-800"
-                              : "bg-red-100 text-red-800"
-                          }`}
-                        >
-                          {category.isActive ? "Active" : "Inactive"}
-                        </span>
-                      </td>
-
-                      <td className="p-2 text-center">{category.courseCount || 0}</td>
-
-                      <td className="space-x-2 p-2 text-center">
-                        <button
-                          type="button"
-                          onClick={() => handleEdit(category)}
-                          disabled={loading}
-                          className="text-xs font-medium text-blue-600 hover:text-blue-800 disabled:text-gray-400"
-                        >
-                          Edit
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleToggleActive(category)}
-                          disabled={loading}
-                          className="text-xs font-medium text-yellow-600 hover:text-yellow-800 disabled:text-gray-400"
-                        >
-                          {category.isActive ? "Deactivate" : "Activate"}
-                        </button>
-
-                        {!category.deletedAt ? (
-                          <button
-                            type="button"
-                            onClick={() => handleSoftDelete(category)}
-                            disabled={loading}
-                            className="text-xs font-medium text-red-600 hover:text-red-800 disabled:text-gray-400"
-                          >
-                            Delete
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => handleRestore(category)}
-                            disabled={loading}
-                            className="text-xs font-medium text-orange-600 hover:text-orange-800 disabled:text-gray-400"
-                          >
-                            Restore
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="mt-4 flex items-center justify-between">
-            <div className="text-sm text-zinc-600">
-              Showing {total === 0 ? 0 : (page - 1) * limit + 1} to{" "}
-              {Math.min(page * limit, total)} of {total} categories
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setPage(Math.max(1, page - 1))}
-                disabled={page === 1 || loading || tableLoading}
-                className="rounded border px-3 py-1 text-sm hover:bg-zinc-100 disabled:bg-gray-100"
-              >
-                Previous
-              </button>
-
-              <span className="px-3 py-1 text-sm">
-                Page {page} of {totalPages}
-              </span>
-
-              <button
-                type="button"
-                onClick={() => setPage(Math.min(totalPages, page + 1))}
-                disabled={page >= totalPages || loading || tableLoading}
-                className="rounded border px-3 py-1 text-sm hover:bg-zinc-100 disabled:bg-gray-100"
-              >
-                Next
-              </button>
-
-              <select
-                value={limit}
-                onChange={(e) => {
-                  setLimit(Number(e.target.value));
-                  setPage(1);
-                }}
-                className="rounded border p-1 text-sm"
-                disabled={loading || tableLoading}
-              >
-                <option value={5}>5/page</option>
-                <option value={10}>10/page</option>
-                <option value={20}>20/page</option>
-                <option value={50}>50/page</option>
-              </select>
             </div>
           </div>
         </div>
@@ -689,9 +1024,13 @@ export default function AdminCategoriesPage() {
                 {getModalIcon()}
               </div>
 
-              <h3 className="text-lg font-semibold text-zinc-900">{confirmModal.title}</h3>
+              <h3 className="text-lg font-semibold text-zinc-900">
+                {confirmModal.title}
+              </h3>
 
-              <p className="mt-2 text-sm leading-6 text-zinc-600">{confirmModal.message}</p>
+              <p className="mt-2 text-sm leading-6 text-zinc-600">
+                {confirmModal.message}
+              </p>
             </div>
 
             <div className="flex justify-end gap-3">
