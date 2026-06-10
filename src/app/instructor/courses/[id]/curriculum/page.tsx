@@ -2,7 +2,25 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { Edit, PlusCircle, Save, Trash2, X } from "lucide-react";
+import { Edit, GripVertical, PlusCircle, Save, Trash2, X } from "lucide-react";
+
+import {
+  DndContext,
+  DragEndEvent,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+
+import {
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+
+import { CSS } from "@dnd-kit/utilities";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,9 +45,69 @@ import type {
   InstructorCourse,
 } from "@/services/instructor-course.service";
 
+function SortableSectionCard({
+  section,
+  children,
+}: {
+  section: Section;
+  children: React.ReactNode;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: section.id,
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={isDragging ? "opacity-60" : ""}
+    >
+      <Card className="overflow-hidden">
+        <div className="flex items-center gap-3 border-b bg-muted/40 px-4 py-2">
+          <button
+            type="button"
+            {...attributes}
+            {...listeners}
+            className="inline-flex cursor-grab items-center justify-center rounded-md border bg-background p-1.5 text-muted-foreground transition hover:bg-muted active:cursor-grabbing"
+            title="Drag to reorder section"
+          >
+            <GripVertical className="h-4 w-4" />
+          </button>
+
+          <p className="text-xs text-muted-foreground">
+            Drag this section to reorder
+          </p>
+        </div>
+
+        {children}
+      </Card>
+    </div>
+  );
+}
+
 export default function CourseCurriculumPage() {
   const params = useParams();
   const courseId = String(params.id);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 6,
+      },
+    })
+  );
 
   const [course, setCourse] = useState<InstructorCourse | null>(null);
   const [courseLoading, setCourseLoading] = useState(false);
@@ -263,25 +341,24 @@ export default function CourseCurriculumPage() {
     }
   }
 
-  async function moveSection(sectionId: string, direction: "up" | "down") {
-    const currentIndex = sections.findIndex(
-      (section) => section.id === sectionId
-    );
-    const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+  async function handleSectionDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
 
-    if (targetIndex < 0 || targetIndex >= sections.length) return;
+    if (!over || active.id === over.id) return;
 
-    const copied = [...sections];
-    const temp = copied[currentIndex];
-    copied[currentIndex] = copied[targetIndex];
-    copied[targetIndex] = temp;
+    const oldIndex = sections.findIndex((section) => section.id === active.id);
+    const newIndex = sections.findIndex((section) => section.id === over.id);
 
-    setSections(copied);
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const reorderedSections = arrayMove(sections, oldIndex, newIndex);
+
+    setSections(reorderedSections);
 
     try {
       await instructorCourseService.reorderSections(
         courseId,
-        copied.map((section) => section.id)
+        reorderedSections.map((section) => section.id)
       );
 
       await fetchSectionsAndLessons();
@@ -480,304 +557,323 @@ export default function CourseCurriculumPage() {
           </CardHeader>
         </Card>
       ) : (
-        <div className="space-y-5">
-          {sections.map((section, sectionIndex) => (
-            <Card key={section.id}>
-              <CardHeader>
-                {editingSectionId === section.id ? (
-                  <div className="space-y-3">
-                    <Input
-                      value={editSectionTitle}
-                      onChange={(event) =>
-                        setEditSectionTitle(event.target.value)
-                      }
-                    />
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleSectionDragEnd}
+        >
+          <SortableContext
+            items={sections.map((section) => section.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            <div className="space-y-5">
+              {sections.map((section, sectionIndex) => (
+                <SortableSectionCard key={section.id} section={section}>
+                  <CardHeader>
+                    {editingSectionId === section.id ? (
+                      <div className="space-y-3">
+                        <Input
+                          value={editSectionTitle}
+                          onChange={(event) =>
+                            setEditSectionTitle(event.target.value)
+                          }
+                        />
 
-                    <Textarea
-                      value={editSectionDescription}
-                      onChange={(event) =>
-                        setEditSectionDescription(event.target.value)
-                      }
-                    />
+                        <Textarea
+                          value={editSectionDescription}
+                          onChange={(event) =>
+                            setEditSectionDescription(event.target.value)
+                          }
+                        />
 
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        onClick={() => handleUpdateSection(section.id)}
-                      >
-                        <Save className="mr-2 h-4 w-4" />
-                        Save
-                      </Button>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            onClick={() => handleUpdateSection(section.id)}
+                          >
+                            <Save className="mr-2 h-4 w-4" />
+                            Save
+                          </Button>
 
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setEditingSectionId(null)}
-                      >
-                        <X className="mr-2 h-4 w-4" />
-                        Cancel
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <CardTitle>
-                          Section {sectionIndex + 1}: {section.title}
-                        </CardTitle>
-
-                        <Badge
-                          variant={section.isActive ? "default" : "secondary"}
-                        >
-                          {section.isActive ? "Active" : "Inactive"}
-                        </Badge>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setEditingSectionId(null)}
+                          >
+                            <X className="mr-2 h-4 w-4" />
+                            Cancel
+                          </Button>
+                        </div>
                       </div>
+                    ) : (
+                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <CardTitle>
+                              Section {sectionIndex + 1}: {section.title}
+                            </CardTitle>
 
-                      {section.description && (
-                        <CardDescription className="mt-1">
-                          {section.description}
-                        </CardDescription>
+                            <Badge
+                              variant={
+                                section.isActive ? "default" : "secondary"
+                              }
+                            >
+                              {section.isActive ? "Active" : "Inactive"}
+                            </Badge>
+                          </div>
+
+                          {section.description && (
+                            <CardDescription className="mt-1">
+                              {section.description}
+                            </CardDescription>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleToggleSection(section)}
+                          >
+                            {section.isActive ? "Disable" : "Enable"}
+                          </Button>
+
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => startEditSection(section)}
+                          >
+                            <Edit className="mr-2 h-4 w-4" />
+                            Edit
+                          </Button>
+
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => handleDeleteSection(section.id)}
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Delete
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </CardHeader>
+
+                  <CardContent className="space-y-4">
+                    <div className="space-y-3">
+                      {section.lessons?.length ? (
+                        section.lessons.map(
+                          (lesson: Lesson, lessonIndex: number) => (
+                            <div
+                              key={lesson.id}
+                              className="rounded-lg border bg-background p-4"
+                            >
+                              {editingLessonId === lesson.id ? (
+                                <div className="space-y-3">
+                                  <Input
+                                    value={editLessonTitle}
+                                    onChange={(event) =>
+                                      setEditLessonTitle(event.target.value)
+                                    }
+                                  />
+
+                                  <Textarea
+                                    value={editLessonDescription}
+                                    onChange={(event) =>
+                                      setEditLessonDescription(
+                                        event.target.value
+                                      )
+                                    }
+                                  />
+
+                                  <div className="flex gap-2">
+                                    <Button
+                                      size="sm"
+                                      onClick={() =>
+                                        handleUpdateLesson(
+                                          section.id,
+                                          lesson.id
+                                        )
+                                      }
+                                    >
+                                      Save
+                                    </Button>
+
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => setEditingLessonId(null)}
+                                    >
+                                      Cancel
+                                    </Button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <p className="font-medium">
+                                        Lesson {lessonIndex + 1}: {lesson.title}
+                                      </p>
+
+                                      <Badge
+                                        variant={
+                                          lesson.isActive
+                                            ? "default"
+                                            : "secondary"
+                                        }
+                                      >
+                                        {lesson.isActive
+                                          ? "Active"
+                                          : "Inactive"}
+                                      </Badge>
+                                    </div>
+
+                                    {lesson.description && (
+                                      <p className="mt-1 text-sm text-muted-foreground">
+                                        {lesson.description}
+                                      </p>
+                                    )}
+                                  </div>
+
+                                  <div className="flex flex-wrap gap-2">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      disabled={lessonIndex === 0}
+                                      onClick={() =>
+                                        moveLesson(
+                                          section.id,
+                                          lesson.id,
+                                          "up"
+                                        )
+                                      }
+                                    >
+                                      Up
+                                    </Button>
+
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      disabled={
+                                        lessonIndex ===
+                                        (section.lessons?.length ?? 0) - 1
+                                      }
+                                      onClick={() =>
+                                        moveLesson(
+                                          section.id,
+                                          lesson.id,
+                                          "down"
+                                        )
+                                      }
+                                    >
+                                      Down
+                                    </Button>
+
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() =>
+                                        handleToggleLesson(section.id, lesson)
+                                      }
+                                    >
+                                      {lesson.isActive ? "Disable" : "Enable"}
+                                    </Button>
+
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => startEditLesson(lesson)}
+                                    >
+                                      Edit
+                                    </Button>
+
+                                    <Button
+                                      size="sm"
+                                      variant="destructive"
+                                      onClick={() =>
+                                        handleDeleteLesson(
+                                          section.id,
+                                          lesson.id
+                                        )
+                                      }
+                                    >
+                                      Delete
+                                    </Button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        )
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          No lessons in this section yet.
+                        </p>
                       )}
                     </div>
 
-                    <div className="flex flex-wrap gap-2">
+                    {lessonFormSectionId === section.id ? (
+                      <form
+                        onSubmit={handleCreateLesson}
+                        className="space-y-3 rounded-lg border bg-muted/40 p-4"
+                      >
+                        <Input
+                          value={lessonTitle}
+                          onChange={(event) =>
+                            setLessonTitle(event.target.value)
+                          }
+                          placeholder="Lesson title"
+                          required
+                          minLength={3}
+                          maxLength={255}
+                        />
+
+                        <Textarea
+                          value={lessonDescription}
+                          onChange={(event) =>
+                            setLessonDescription(event.target.value)
+                          }
+                          placeholder="Lesson description"
+                          maxLength={2000}
+                        />
+
+                        <div className="flex gap-2">
+                          <Button type="submit" size="sm">
+                            Add Lesson
+                          </Button>
+
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setLessonFormSectionId(null);
+                              setLessonTitle("");
+                              setLessonDescription("");
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </form>
+                    ) : (
                       <Button
                         size="sm"
                         variant="outline"
-                        disabled={sectionIndex === 0}
-                        onClick={() => moveSection(section.id, "up")}
+                        onClick={() => setLessonFormSectionId(section.id)}
                       >
-                        Up
-                      </Button>
-
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={sectionIndex === sections.length - 1}
-                        onClick={() => moveSection(section.id, "down")}
-                      >
-                        Down
-                      </Button>
-
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleToggleSection(section)}
-                      >
-                        {section.isActive ? "Disable" : "Enable"}
-                      </Button>
-
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => startEditSection(section)}
-                      >
-                        <Edit className="mr-2 h-4 w-4" />
-                        Edit
-                      </Button>
-
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        onClick={() => handleDeleteSection(section.id)}
-                      >
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        Delete
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </CardHeader>
-
-              <CardContent className="space-y-4">
-                <div className="space-y-3">
-                  {section.lessons?.length ? (
-                    section.lessons.map((lesson: Lesson, lessonIndex: number) => (
-                      <div
-                        key={lesson.id}
-                        className="rounded-lg border bg-background p-4"
-                      >
-                        {editingLessonId === lesson.id ? (
-                          <div className="space-y-3">
-                            <Input
-                              value={editLessonTitle}
-                              onChange={(event) =>
-                                setEditLessonTitle(event.target.value)
-                              }
-                            />
-
-                            <Textarea
-                              value={editLessonDescription}
-                              onChange={(event) =>
-                                setEditLessonDescription(event.target.value)
-                              }
-                            />
-
-                            <div className="flex gap-2">
-                              <Button
-                                size="sm"
-                                onClick={() =>
-                                  handleUpdateLesson(section.id, lesson.id)
-                                }
-                              >
-                                Save
-                              </Button>
-
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => setEditingLessonId(null)}
-                              >
-                                Cancel
-                              </Button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <p className="font-medium">
-                                  Lesson {lessonIndex + 1}: {lesson.title}
-                                </p>
-
-                                <Badge
-                                  variant={
-                                    lesson.isActive ? "default" : "secondary"
-                                  }
-                                >
-                                  {lesson.isActive ? "Active" : "Inactive"}
-                                </Badge>
-                              </div>
-
-                              {lesson.description && (
-                                <p className="mt-1 text-sm text-muted-foreground">
-                                  {lesson.description}
-                                </p>
-                              )}
-                            </div>
-
-                            <div className="flex flex-wrap gap-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                disabled={lessonIndex === 0}
-                                onClick={() =>
-                                  moveLesson(section.id, lesson.id, "up")
-                                }
-                              >
-                                Up
-                              </Button>
-
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                disabled={
-                                  lessonIndex ===
-                                  (section.lessons?.length ?? 0) - 1
-                                }
-                                onClick={() =>
-                                  moveLesson(section.id, lesson.id, "down")
-                                }
-                              >
-                                Down
-                              </Button>
-
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() =>
-                                  handleToggleLesson(section.id, lesson)
-                                }
-                              >
-                                {lesson.isActive ? "Disable" : "Enable"}
-                              </Button>
-
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => startEditLesson(lesson)}
-                              >
-                                Edit
-                              </Button>
-
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                onClick={() =>
-                                  handleDeleteLesson(section.id, lesson.id)
-                                }
-                              >
-                                Delete
-                              </Button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      No lessons in this section yet.
-                    </p>
-                  )}
-                </div>
-
-                {lessonFormSectionId === section.id ? (
-                  <form
-                    onSubmit={handleCreateLesson}
-                    className="space-y-3 rounded-lg border bg-muted/40 p-4"
-                  >
-                    <Input
-                      value={lessonTitle}
-                      onChange={(event) => setLessonTitle(event.target.value)}
-                      placeholder="Lesson title"
-                      required
-                      minLength={3}
-                      maxLength={255}
-                    />
-
-                    <Textarea
-                      value={lessonDescription}
-                      onChange={(event) =>
-                        setLessonDescription(event.target.value)
-                      }
-                      placeholder="Lesson description"
-                      maxLength={2000}
-                    />
-
-                    <div className="flex gap-2">
-                      <Button type="submit" size="sm">
+                        <PlusCircle className="mr-2 h-4 w-4" />
                         Add Lesson
                       </Button>
-
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setLessonFormSectionId(null);
-                          setLessonTitle("");
-                          setLessonDescription("");
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  </form>
-                ) : (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setLessonFormSectionId(section.id)}
-                  >
-                    <PlusCircle className="mr-2 h-4 w-4" />
-                    Add Lesson
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                    )}
+                  </CardContent>
+                </SortableSectionCard>
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
       )}
     </main>
   );
