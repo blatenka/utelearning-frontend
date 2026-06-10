@@ -502,8 +502,8 @@ export default function AdminCategoriesPage() {
                 </h3>
                 <p className="text-sm text-zinc-500">
                   {formMode === "create"
-                    ? "Create DTO only sends name, description and parentId."
-                    : "Update DTO can change name, description, parent, order and active status."}
+                    ? "Create new category for your courses."
+                    : "Update Category details like name, description, parent, order and active status."}
                 </p>
               </div>
 

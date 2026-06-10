@@ -1,0 +1,207 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { Edit, Layers, PlusCircle, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  instructorCourseService,
+  InstructorCourse,
+  unwrapList,
+} from "@/services/instructor-course.service";
+import { useAuth } from "@/providers/AuthProvider";
+
+export default function InstructorCoursesPage() {
+  const { user, loading: authLoading } = useAuth();
+
+  const [courses, setCourses] = useState<InstructorCourse[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function fetchCourses() {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const response = await instructorCourseService.getMyCourses({
+        page: 1,
+        limit: 20,
+        sortField: "updatedAt",
+        sortDirection: "desc",
+      });
+
+      setCourses(unwrapList<InstructorCourse>(response));
+    } catch (err: any) {
+      setError(
+        err?.response?.data?.message || "Failed to load instructor courses."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleDeleteDraft(courseId: string) {
+    const confirmed = window.confirm(
+      "Are you sure you want to delete this draft course?"
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setDeletingId(courseId);
+      await instructorCourseService.deleteDraftCourse(courseId);
+      setCourses((prev) => prev.filter((course) => course.id !== courseId));
+    } catch (err: any) {
+      alert(err?.response?.data?.message || "Failed to delete draft course.");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  useEffect(() => {
+    if (!authLoading && user?.role === "INSTRUCTOR") {
+      fetchCourses();
+    }
+  }, [authLoading, user?.role]);
+
+  if (authLoading) {
+    return (
+      <main className="mx-auto max-w-6xl px-6 py-10">
+        <p className="text-muted-foreground">Loading...</p>
+      </main>
+    );
+  }
+
+  if (!user || user.role !== "INSTRUCTOR") {
+    return (
+      <main className="mx-auto max-w-6xl px-6 py-10">
+        <Card>
+          <CardHeader>
+            <CardTitle>Access denied</CardTitle>
+            <CardDescription>
+              You need to sign in as an instructor to access this page.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </main>
+    );
+  }
+
+  return (
+    <main className="mx-auto max-w-6xl px-6 py-10">
+      <div className="mb-8 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">My Courses</h1>
+          <p className="text-muted-foreground">
+            Manage your draft and published courses.
+          </p>
+        </div>
+
+        <Button asChild>
+          <Link href="/instructor/courses/new">
+            <PlusCircle className="mr-2 h-4 w-4" />
+            Create Course
+          </Link>
+        </Button>
+      </div>
+
+      {error && (
+        <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <p className="text-muted-foreground">Loading courses...</p>
+      ) : courses.length === 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>No courses yet</CardTitle>
+            <CardDescription>
+              Create your first draft course and start building sections and
+              lessons.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild>
+              <Link href="/instructor/courses/new">Create Course</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-4">
+          {courses.map((course) => (
+            <Card key={course.id}>
+              <CardHeader>
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <CardTitle>{course.title}</CardTitle>
+                    <CardDescription className="mt-1">
+                      {course.shortDescription}
+                    </CardDescription>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {course.status && <Badge>{course.status}</Badge>}
+                    <Badge variant="outline">{course.level}</Badge>
+                    {course.isActive === false && (
+                      <Badge variant="destructive">Inactive</Badge>
+                    )}
+                  </div>
+                </div>
+              </CardHeader>
+
+              <CardContent>
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div className="text-sm text-muted-foreground">
+                    {course.language && <span>{course.language}</span>}
+                    {typeof course.price === "number" && (
+                      <span className="ml-3">${course.price}</span>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <Button asChild variant="outline" size="sm">
+                      <Link href={`/instructor/courses/${course.id}/edit`}>
+                        <Edit className="mr-2 h-4 w-4" />
+                        Edit
+                      </Link>
+                    </Button>
+
+                    <Button asChild size="sm">
+                      <Link
+                        href={`/instructor/courses/${course.id}/curriculum`}
+                      >
+                        <Layers className="mr-2 h-4 w-4" />
+                        Curriculum
+                      </Link>
+                    </Button>
+
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      disabled={deletingId === course.id}
+                      onClick={() => handleDeleteDraft(course.id)}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      {deletingId === course.id ? "Deleting..." : "Delete"}
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </main>
+  );
+}
