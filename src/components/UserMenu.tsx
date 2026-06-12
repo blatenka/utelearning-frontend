@@ -12,6 +12,7 @@ export default function UserMenu({ user }: { user: any }) {
 
   const isAdmin = user?.role === "ADMIN";
   const isInstructor = user?.role === "INSTRUCTOR";
+  const isReviewer = user?.role === "REVIEWER";
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -55,7 +56,7 @@ export default function UserMenu({ user }: { user: any }) {
       </button>
 
       <div
-        className={`absolute right-0 z-20 mt-2 w-56 origin-top-right rounded-xl border border-zinc-200/80 bg-white/95 p-1.5 shadow-xl backdrop-blur-md transition-all duration-200 ${
+        className={`absolute right-0 z-20 mt-2 w-60 origin-top-right rounded-xl border border-zinc-200/80 bg-white/95 p-1.5 shadow-xl backdrop-blur-md transition-all duration-200 ${
           open
             ? "translate-y-0 scale-100 opacity-100"
             : "pointer-events-none -translate-y-1 scale-95 opacity-0"
@@ -111,6 +112,17 @@ export default function UserMenu({ user }: { user: any }) {
             >
               Categories Management
             </button>
+
+            <button
+              type="button"
+              className="block w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm text-blue-600 transition-colors hover:bg-zinc-100"
+              onClick={() => {
+                setOpen(false);
+                router.push("/admin/reviewer-categories");
+              }}
+            >
+              Reviewer Categories
+            </button>
           </>
         )}
 
@@ -153,6 +165,49 @@ export default function UserMenu({ user }: { user: any }) {
               }}
             >
               Create Course
+            </button>
+          </>
+        )}
+
+        {isReviewer && (
+          <>
+            <div className="my-1 border-t border-zinc-200" />
+
+            <p className="px-3 py-1 text-xs font-semibold uppercase tracking-wide text-zinc-400">
+              Reviewer
+            </p>
+
+            <button
+              type="button"
+              className="block w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm text-purple-600 transition-colors hover:bg-zinc-100"
+              onClick={() => {
+                setOpen(false);
+                router.push("/reviewer");
+              }}
+            >
+              Reviewer Dashboard
+            </button>
+
+            <button
+              type="button"
+              className="block w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm text-purple-600 transition-colors hover:bg-zinc-100"
+              onClick={() => {
+                setOpen(false);
+                router.push("/reviewer/courses/available");
+              }}
+            >
+              Available Courses
+            </button>
+
+            <button
+              type="button"
+              className="block w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm text-purple-600 transition-colors hover:bg-zinc-100"
+              onClick={() => {
+                setOpen(false);
+                router.push("/reviewer/courses");
+              }}
+            >
+              My Review Tasks
             </button>
           </>
         )}

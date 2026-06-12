@@ -129,7 +129,7 @@ export default function AdminCategoriesPage() {
         params.append("includeDeleted", "true");
       }
 
-      const res = await api.get(`/v1/categories?${params.toString()}`);
+      const res = await api.get(`/v1/admin/courses/categories?${params.toString()}`);
 
       setCategories(res.data?.data?.data || []);
       setTotal(res.data?.data?.meta?.total || 0);
@@ -282,12 +282,12 @@ export default function AdminCategoriesPage() {
 
     try {
       if (formMode === "create") {
-        await api.post("/v1/categories", buildCreatePayload());
+        await api.post("/v1/admin/courses/categories", buildCreatePayload());
         setSuccess("Category created successfully");
       }
 
       if (formMode === "edit" && selectedCategoryId) {
-        await api.patch(`/v1/categories/${selectedCategoryId}`, buildUpdatePayload());
+        await api.patch(`/v1/admin/courses/categories/${selectedCategoryId}`, buildUpdatePayload());
         setSuccess("Category updated successfully");
       }
 
@@ -314,7 +314,7 @@ export default function AdminCategoriesPage() {
         setSuccess(null);
 
         try {
-          await api.patch(`/v1/categories/${category.id}/soft-delete`);
+          await api.patch(`/v1/admin/courses/categories/${category.id}/soft-delete`);
           setSuccess("Category soft deleted");
 
           if (selectedCategoryId === category.id) {
@@ -345,7 +345,7 @@ export default function AdminCategoriesPage() {
         setSuccess(null);
 
         try {
-          await api.patch(`/v1/categories/${category.id}/restore`);
+          await api.patch(`/v1/admin/courses/categories/${category.id}/restore`);
           setSuccess("Category restored");
           await loadCategories();
           closeConfirmModal();
@@ -375,7 +375,7 @@ export default function AdminCategoriesPage() {
         setSuccess(null);
 
         try {
-          await api.patch(`/v1/categories/${category.id}/active-status`, {
+          await api.patch(`/v1/admin/courses/categories/${category.id}/active-status`, {
             isActive: nextStatus,
           });
 

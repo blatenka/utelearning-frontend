@@ -8,6 +8,44 @@ type AuthMode = "login" | "register";
 
 const GENDERS = ["MALE", "FEMALE", "OTHER", "PREFER_NOT_TO_SAY"] as const;
 
+function EyeIcon() {
+  return (
+    <svg
+      className="h-5 w-5"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+function EyeOffIcon() {
+  return (
+    <svg
+      className="h-5 w-5"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c6.5 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" />
+      <path d="M6.61 6.61C3.8 8.51 2 12 2 12s3.5 7 10 7a9.74 9.74 0 0 0 5.39-1.61" />
+      <path d="M14.12 14.12A3 3 0 0 1 9.88 9.88" />
+      <path d="M3 3l18 18" />
+    </svg>
+  );
+}
+
 export default function AuthPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -17,7 +55,12 @@ export default function AuthPage() {
 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
+
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [dateOfBirth, setDateOfBirth] = useState("");
   const [gender, setGender] = useState("");
@@ -38,7 +81,7 @@ export default function AuthPage() {
 
   const title = useMemo(
     () => (mode === "register" ? "Create your account" : "Welcome back"),
-    [mode],
+    [mode]
   );
 
   const subtitle = useMemo(
@@ -46,22 +89,25 @@ export default function AuthPage() {
       mode === "register"
         ? "Start learning with your personal account."
         : "Sign in to continue to your learning dashboard.",
-    [mode],
+    [mode]
   );
 
   const submitText = useMemo(
     () => (mode === "register" ? "Create account" : "Sign in"),
-    [mode],
+    [mode]
   );
 
   const loadingText = useMemo(
     () => (mode === "register" ? "Creating account..." : "Signing in..."),
-    [mode],
+    [mode]
   );
 
   function changeMode(nextMode: AuthMode) {
     setMode(nextMode);
     setError(null);
+    setShowPassword(false);
+    setShowConfirmPassword(false);
+    setConfirmPassword("");
 
     const url =
       nextMode === "register" ? "/auth?tab=register" : "/auth?tab=login";
@@ -100,6 +146,16 @@ export default function AuthPage() {
 
     if (mode === "register" && !fullName.trim()) {
       setError("Full name is required.");
+      return;
+    }
+
+    if (mode === "register" && !confirmPassword.trim()) {
+      setError("Please confirm your password.");
+      return;
+    }
+
+    if (mode === "register" && password !== confirmPassword) {
+      setError("Password and confirm password do not match.");
       return;
     }
 
@@ -153,14 +209,13 @@ export default function AuthPage() {
   function handleGoogleLogin() {
     const backendUrl =
       process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api";
-    
+
     const googleAuthUrl = `${backendUrl}/v1/auth/google`;
     const width = 500;
     const height = 600;
     const left = window.screenX + (window.outerWidth - width) / 2;
     const top = window.screenY + (window.outerHeight - height) / 2;
 
-    // Open Google auth in popup window
     const popup = window.open(
       googleAuthUrl,
       "google-login",
@@ -172,34 +227,34 @@ export default function AuthPage() {
       return;
     }
 
-    // Listen for message from popup with token
     const handleMessage = (event: MessageEvent) => {
-      // Only accept messages from same origin
       if (event.origin !== window.location.origin) return;
 
       if (event.data.type === "GOOGLE_LOGIN_SUCCESS") {
         const token = event.data.token;
+
         if (token) {
           localStorage.setItem("accessToken", token);
+
           if (event.data.user) {
             localStorage.setItem("user", JSON.stringify(event.data.user));
           }
-          popup?.close();
+
+          popup.close();
           window.removeEventListener("message", handleMessage);
           router.push("/dashboard");
         }
       } else if (event.data.type === "GOOGLE_LOGIN_ERROR") {
         setError(event.data.message || "Google login failed");
-        popup?.close();
+        popup.close();
         window.removeEventListener("message", handleMessage);
       }
     };
 
     window.addEventListener("message", handleMessage);
 
-    // Fallback: Check if popup closed
     const popupCheckInterval = setInterval(() => {
-      if (popup?.closed) {
+      if (popup.closed) {
         clearInterval(popupCheckInterval);
         window.removeEventListener("message", handleMessage);
       }
@@ -410,16 +465,67 @@ export default function AuthPage() {
                   )}
                 </div>
 
-                <input
-                  id="password"
-                  type="password"
-                  placeholder="Enter your password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  disabled={loading}
-                  className="h-11 w-full rounded-xl border border-zinc-300 bg-white px-4 text-sm outline-none transition placeholder:text-zinc-400 focus:border-zinc-950 focus:ring-4 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:bg-zinc-100"
-                />
+                <div className="relative">
+                  <input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Enter your password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    disabled={loading}
+                    className="h-11 w-full rounded-xl border border-zinc-300 bg-white px-4 pr-12 text-sm outline-none transition placeholder:text-zinc-400 focus:border-zinc-950 focus:ring-4 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:bg-zinc-100"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    disabled={loading}
+                    aria-label={
+                      showPassword ? "Hide password" : "Show password"
+                    }
+                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-950 disabled:cursor-not-allowed"
+                  >
+                    {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+                  </button>
+                </div>
               </div>
+
+              {mode === "register" && (
+                <div className="space-y-2">
+                  <label
+                    htmlFor="confirmPassword"
+                    className="text-sm font-medium text-zinc-700"
+                  >
+                    Confirm password
+                  </label>
+
+                  <div className="relative">
+                    <input
+                      id="confirmPassword"
+                      type={showConfirmPassword ? "text" : "password"}
+                      placeholder="Enter your password again"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      disabled={loading}
+                      className="h-11 w-full rounded-xl border border-zinc-300 bg-white px-4 pr-12 text-sm outline-none transition placeholder:text-zinc-400 focus:border-zinc-950 focus:ring-4 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:bg-zinc-100"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword((prev) => !prev)}
+                      disabled={loading}
+                      aria-label={
+                        showConfirmPassword
+                          ? "Hide confirm password"
+                          : "Show confirm password"
+                      }
+                      className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-950 disabled:cursor-not-allowed"
+                    >
+                      {showConfirmPassword ? <EyeOffIcon /> : <EyeIcon />}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {error && (
                 <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
