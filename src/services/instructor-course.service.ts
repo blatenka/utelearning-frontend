@@ -2,21 +2,41 @@ import api from "@/lib/api";
 
 export type CourseLevel = "BEGINNER" | "INTERMEDIATE" | "ADVANCED";
 
+export type MediaType = "IMAGE" | "VIDEO" | "RAW";
+
 export type InstructorCourse = {
   id: string;
   title: string;
-  slug: string;
+  slug?: string;
   shortDescription: string;
   description?: string | null;
+  whatYouWillLearn?: string[];
+  requirements?: string[];
   thumbnailUrl?: string | null;
   level: CourseLevel;
   price?: number | null;
   language?: string | null;
+  durationInMinutes?: number | null;
   certificateEnabled: boolean;
   status?: string;
   isActive?: boolean;
+  publishedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
+  categories?: {
+    id: string;
+    name: string;
+    slug?: string;
+  }[];
+};
+
+export type Lesson = {
+  id: string;
+  sectionId: string;
+  title: string;
+  description?: string | null;
+  lessonIndex: number;
+  isActive: boolean;
 };
 
 export type Section = {
@@ -27,15 +47,6 @@ export type Section = {
   sectionIndex: number;
   isActive: boolean;
   lessons?: Lesson[];
-};
-
-export type Lesson = {
-  id: string;
-  sectionId: string;
-  title: string;
-  description?: string | null;
-  lessonIndex: number;
-  isActive: boolean;
 };
 
 export type CreateCoursePayload = {
@@ -93,6 +104,46 @@ export type LessonQuery = {
   limit?: number;
 };
 
+export type CreateLessonFilePayload = {
+  cloudinaryPublicId?: string | null;
+  url: string;
+  type: MediaType;
+  filename?: string | null;
+  mimeType?: string | null;
+  sizeInBytes?: number | null;
+};
+
+export type LessonFileMedia = {
+  id: string;
+  lessonId: string;
+  cloudinaryPublicId?: string | null;
+  url: string;
+  type: MediaType;
+  filename?: string | null;
+  mimeType?: string | null;
+  sizeInBytes?: number | null;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type UploadSignaturePayload = {
+  entityType: "course" | "lecture" | "lesson" | "post" | "user" | "document";
+  entityId: string;
+  resourceType: "image" | "video" | "raw";
+  subFolder?: string;
+  publicId?: string;
+};
+
+export type UploadSignatureResponse = {
+  signature: string;
+  timestamp: number;
+  cloudName: string;
+  apiKey: string;
+  uploadPreset?: string;
+  folder?: string;
+  resourceType: "image" | "video" | "raw";
+};
+
 export const unwrapData = <T>(response: any): T => {
   return response?.data?.data ?? response?.data;
 };
@@ -102,6 +153,8 @@ export const unwrapList = <T>(response: any): T[] => {
 
   if (Array.isArray(payload)) return payload;
   if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.items)) return payload.items;
+  if (Array.isArray(payload?.results)) return payload.results;
 
   return [];
 };
@@ -117,6 +170,10 @@ export const instructorCourseService = {
 
   updateCourse(courseId: string, payload: UpdateCoursePayload) {
     return api.patch(`/v1/instructor/courses/${courseId}`, payload);
+  },
+
+  submitForReview(courseId: string) {
+    return api.patch(`/v1/instructor/courses/${courseId}/submit-for-review`);
   },
 
   deleteDraftCourse(courseId: string) {
@@ -194,5 +251,21 @@ export const instructorCourseService = {
       `/v1/instructor/courses/${courseId}/sections/${sectionId}/lessons/reorder`,
       { lessonIds }
     );
+  },
+
+  createLessonFile(
+    courseId: string,
+    sectionId: string,
+    lessonId: string,
+    payload: CreateLessonFilePayload
+  ) {
+    return api.post(
+      `/v1/instructor/courses/${courseId}/sections/${sectionId}/lessons/${lessonId}/files`,
+      payload
+    );
+  },
+
+  getUploadSignature(payload: UploadSignaturePayload) {
+    return api.post("/v1/upload/signature", payload);
   },
 };

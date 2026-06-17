@@ -60,7 +60,7 @@ export default function CategoryFormModal({
         payload.parentId = formData.parentId;
       }
 
-      await api.post("/vi/admin/courses/categories", payload);
+      await api.post("/v1/admin/courses/categories", payload);
       resetForm();
       handleClose();
       if (onSuccess) {
