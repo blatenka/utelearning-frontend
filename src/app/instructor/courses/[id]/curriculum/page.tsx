@@ -1,8 +1,18 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { useParams } from "next/navigation";
-import { Edit, GripVertical, PlusCircle, Save, Trash2, X } from "lucide-react";
+import { useParams, useRouter } from "next/navigation";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  Edit,
+  FileUp,
+  GripVertical,
+  PlusCircle,
+  Save,
+  Trash2,
+  X,
+} from "lucide-react";
 
 import {
   DndContext,
@@ -36,14 +46,86 @@ import { Badge } from "@/components/ui/badge";
 
 import {
   instructorCourseService,
+  unwrapData,
   unwrapList,
 } from "@/services/instructor-course.service";
 
 import type {
-  Section,
-  Lesson,
   InstructorCourse,
+  Lesson,
+  LessonFileMedia,
+  MediaType,
+  Section,
+  UploadSignatureResponse,
 } from "@/services/instructor-course.service";
+
+type UploadingState = {
+  lessonId: string;
+  progressText: string;
+} | null;
+
+type PendingUpload = {
+  sectionId: string;
+  lesson: Lesson;
+  file: File;
+  previewUrl: string | null;
+  mediaType: MediaType;
+} | null;
+
+function getCloudinaryResourceType(file: File): "image" | "video" | "raw" {
+  if (file.type.startsWith("image/")) return "image";
+  if (file.type.startsWith("video/")) return "video";
+  return "raw";
+}
+
+function getMediaType(file: File): MediaType {
+  if (file.type.startsWith("image/")) return "IMAGE";
+  if (file.type.startsWith("video/")) return "VIDEO";
+  return "RAW";
+}
+
+function formatFileSize(size: number) {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(2)} KB`;
+  return `${(size / 1024 / 1024).toFixed(2)} MB`;
+}
+
+async function uploadFileToCloudinary(
+  file: File,
+  signature: UploadSignatureResponse
+) {
+  const formData = new FormData();
+
+  formData.append("file", file);
+  formData.append("api_key", signature.apiKey);
+  formData.append("timestamp", String(signature.timestamp));
+  formData.append("signature", signature.signature);
+
+  if (signature.uploadPreset) {
+    formData.append("upload_preset", signature.uploadPreset);
+  }
+
+  if (signature.folder) {
+    formData.append("folder", signature.folder);
+  }
+
+  const resourceType = signature.resourceType || getCloudinaryResourceType(file);
+
+  const response = await fetch(
+    `https://api.cloudinary.com/v1_1/${signature.cloudName}/${resourceType}/upload`,
+    {
+      method: "POST",
+      body: formData,
+    }
+  );
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || "Cloudinary upload failed.");
+  }
+
+  return response.json();
+}
 
 function SortableSectionCard({
   section,
@@ -99,6 +181,7 @@ function SortableSectionCard({
 
 export default function CourseCurriculumPage() {
   const params = useParams();
+  const router = useRouter();
   const courseId = String(params.id);
 
   const sensors = useSensors(
@@ -113,8 +196,16 @@ export default function CourseCurriculumPage() {
   const [courseLoading, setCourseLoading] = useState(false);
 
   const [sections, setSections] = useState<Section[]>([]);
+  const [uploadedFiles, setUploadedFiles] = useState<
+    Record<string, LessonFileMedia[]>
+  >({});
+
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState<UploadingState>(null);
+  const [pendingUpload, setPendingUpload] = useState<PendingUpload>(null);
+
   const [error, setError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
 
   const [sectionTitle, setSectionTitle] = useState("");
   const [sectionDescription, setSectionDescription] = useState("");
@@ -133,6 +224,11 @@ export default function CourseCurriculumPage() {
   const [editingLessonId, setEditingLessonId] = useState<string | null>(null);
   const [editLessonTitle, setEditLessonTitle] = useState("");
   const [editLessonDescription, setEditLessonDescription] = useState("");
+
+  const canEditDraft = (() => {
+    const status = course?.status?.toUpperCase();
+    return !status || status === "DRAFT" || status === "NEEDS_CHANGES";
+  })();
 
   async function fetchCurrentCourse() {
     try {
@@ -209,6 +305,8 @@ export default function CourseCurriculumPage() {
 
     try {
       setCreatingSection(true);
+      setError("");
+      setSuccessMessage("");
 
       await instructorCourseService.createSection(courseId, {
         title: sectionTitle,
@@ -217,9 +315,10 @@ export default function CourseCurriculumPage() {
 
       setSectionTitle("");
       setSectionDescription("");
+      setSuccessMessage("Section created successfully.");
       await fetchSectionsAndLessons();
     } catch (err: any) {
-      alert(err?.response?.data?.message || "Failed to create section.");
+      setError(err?.response?.data?.message || "Failed to create section.");
     } finally {
       setCreatingSection(false);
     }
@@ -233,15 +332,19 @@ export default function CourseCurriculumPage() {
 
   async function handleUpdateSection(sectionId: string) {
     try {
+      setError("");
+      setSuccessMessage("");
+
       await instructorCourseService.updateSection(courseId, sectionId, {
         title: editSectionTitle,
         description: editSectionDescription || null,
       });
 
       setEditingSectionId(null);
+      setSuccessMessage("Section updated successfully.");
       await fetchSectionsAndLessons();
     } catch (err: any) {
-      alert(err?.response?.data?.message || "Failed to update section.");
+      setError(err?.response?.data?.message || "Failed to update section.");
     }
   }
 
@@ -253,15 +356,23 @@ export default function CourseCurriculumPage() {
     if (!confirmed) return;
 
     try {
+      setError("");
+      setSuccessMessage("");
+
       await instructorCourseService.deleteSection(courseId, sectionId);
+
+      setSuccessMessage("Section deleted successfully.");
       await fetchSectionsAndLessons();
     } catch (err: any) {
-      alert(err?.response?.data?.message || "Failed to delete section.");
+      setError(err?.response?.data?.message || "Failed to delete section.");
     }
   }
 
   async function handleToggleSection(section: Section) {
     try {
+      setError("");
+      setSuccessMessage("");
+
       await instructorCourseService.changeSectionStatus(
         courseId,
         section.id,
@@ -270,7 +381,7 @@ export default function CourseCurriculumPage() {
 
       await fetchSectionsAndLessons();
     } catch (err: any) {
-      alert(err?.response?.data?.message || "Failed to update section status.");
+      setError(err?.response?.data?.message || "Failed to update section.");
     }
   }
 
@@ -280,6 +391,9 @@ export default function CourseCurriculumPage() {
     if (!lessonFormSectionId) return;
 
     try {
+      setError("");
+      setSuccessMessage("");
+
       await instructorCourseService.createLesson(courseId, lessonFormSectionId, {
         title: lessonTitle,
         description: lessonDescription || null,
@@ -288,9 +402,10 @@ export default function CourseCurriculumPage() {
       setLessonTitle("");
       setLessonDescription("");
       setLessonFormSectionId(null);
+      setSuccessMessage("Lesson created successfully.");
       await fetchSectionsAndLessons();
     } catch (err: any) {
-      alert(err?.response?.data?.message || "Failed to create lesson.");
+      setError(err?.response?.data?.message || "Failed to create lesson.");
     }
   }
 
@@ -302,15 +417,19 @@ export default function CourseCurriculumPage() {
 
   async function handleUpdateLesson(sectionId: string, lessonId: string) {
     try {
+      setError("");
+      setSuccessMessage("");
+
       await instructorCourseService.updateLesson(courseId, sectionId, lessonId, {
         title: editLessonTitle,
         description: editLessonDescription || null,
       });
 
       setEditingLessonId(null);
+      setSuccessMessage("Lesson updated successfully.");
       await fetchSectionsAndLessons();
     } catch (err: any) {
-      alert(err?.response?.data?.message || "Failed to update lesson.");
+      setError(err?.response?.data?.message || "Failed to update lesson.");
     }
   }
 
@@ -322,22 +441,30 @@ export default function CourseCurriculumPage() {
     if (!confirmed) return;
 
     try {
+      setError("");
+      setSuccessMessage("");
+
       await instructorCourseService.deleteLesson(courseId, sectionId, lessonId);
+
+      setSuccessMessage("Lesson deleted successfully.");
       await fetchSectionsAndLessons();
     } catch (err: any) {
-      alert(err?.response?.data?.message || "Failed to delete lesson.");
+      setError(err?.response?.data?.message || "Failed to delete lesson.");
     }
   }
 
   async function handleToggleLesson(sectionId: string, lesson: Lesson) {
     try {
+      setError("");
+      setSuccessMessage("");
+
       await instructorCourseService.updateLesson(courseId, sectionId, lesson.id, {
         isActive: !lesson.isActive,
       });
 
       await fetchSectionsAndLessons();
     } catch (err: any) {
-      alert(err?.response?.data?.message || "Failed to update lesson status.");
+      setError(err?.response?.data?.message || "Failed to update lesson.");
     }
   }
 
@@ -363,7 +490,7 @@ export default function CourseCurriculumPage() {
 
       await fetchSectionsAndLessons();
     } catch (err: any) {
-      alert(err?.response?.data?.message || "Failed to reorder sections.");
+      setError(err?.response?.data?.message || "Failed to reorder sections.");
       await fetchSectionsAndLessons();
     }
   }
@@ -403,112 +530,244 @@ export default function CourseCurriculumPage() {
 
       await fetchSectionsAndLessons();
     } catch (err: any) {
-      alert(err?.response?.data?.message || "Failed to reorder lessons.");
+      setError(err?.response?.data?.message || "Failed to reorder lessons.");
       await fetchSectionsAndLessons();
+    }
+  }
+
+  function handleSelectLessonFile(sectionId: string, lesson: Lesson, file: File) {
+    const mediaType = getMediaType(file);
+    const previewUrl =
+      file.type.startsWith("image/") || file.type.startsWith("video/")
+        ? URL.createObjectURL(file)
+        : null;
+
+    if (pendingUpload?.previewUrl) {
+      URL.revokeObjectURL(pendingUpload.previewUrl);
+    }
+
+    setPendingUpload({
+      sectionId,
+      lesson,
+      file,
+      previewUrl,
+      mediaType,
+    });
+
+    setError("");
+    setSuccessMessage("");
+  }
+
+  function cancelPendingUpload() {
+    if (pendingUpload?.previewUrl) {
+      URL.revokeObjectURL(pendingUpload.previewUrl);
+    }
+
+    setPendingUpload(null);
+  }
+
+  async function handleConfirmUploadLessonFile() {
+    if (!pendingUpload) return;
+
+    const { sectionId, lesson, file } = pendingUpload;
+
+    try {
+      setUploading({
+        lessonId: lesson.id,
+        progressText: "Getting upload signature...",
+      });
+      setError("");
+      setSuccessMessage("");
+
+      const resourceType = getCloudinaryResourceType(file);
+      const mediaType = getMediaType(file);
+
+      const signatureResponse =
+        await instructorCourseService.getUploadSignature({
+          entityType: "lesson",
+          entityId: lesson.id,
+          resourceType,
+          subFolder: "files",
+        });
+
+      const signature = unwrapData<UploadSignatureResponse>(signatureResponse);
+
+      setUploading({
+        lessonId: lesson.id,
+        progressText: "Uploading to Cloudinary...",
+      });
+
+      const cloudinaryResult = await uploadFileToCloudinary(file, signature);
+
+      setUploading({
+        lessonId: lesson.id,
+        progressText: "Saving media information...",
+      });
+
+      const mediaResponse = await instructorCourseService.createLessonFile(
+        courseId,
+        sectionId,
+        lesson.id,
+        {
+          cloudinaryPublicId: cloudinaryResult.public_id ?? null,
+          url: cloudinaryResult.secure_url,
+          type: mediaType,
+          filename: file.name,
+          mimeType: file.type || null,
+          sizeInBytes: file.size,
+        }
+      );
+
+      const savedMedia = unwrapData<LessonFileMedia>(mediaResponse);
+
+      setUploadedFiles((prev) => ({
+        ...prev,
+        [lesson.id]: [...(prev[lesson.id] ?? []), savedMedia],
+      }));
+
+      if (pendingUpload.previewUrl) {
+        URL.revokeObjectURL(pendingUpload.previewUrl);
+      }
+
+      setPendingUpload(null);
+      setSuccessMessage("Lesson media uploaded successfully.");
+    } catch (err: any) {
+      setError(
+        err?.response?.data?.message ||
+          err?.message ||
+          "Failed to upload lesson media."
+      );
+    } finally {
+      setUploading(null);
     }
   }
 
   useEffect(() => {
     fetchCurrentCourse();
     fetchSectionsAndLessons();
+
+    return () => {
+      if (pendingUpload?.previewUrl) {
+        URL.revokeObjectURL(pendingUpload.previewUrl);
+      }
+    };
   }, [courseId]);
 
   return (
-    <main className="mx-auto max-w-5xl px-6 py-10">
-      <Card className="mb-8 overflow-hidden">
-        <CardHeader>
-          {courseLoading ? (
-            <>
-              <CardTitle>Loading course...</CardTitle>
-              <CardDescription>
-                Please wait while we load the course information.
-              </CardDescription>
-            </>
-          ) : course ? (
-            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <CardTitle className="text-2xl">{course.title}</CardTitle>
+    <main className="mx-auto max-w-6xl px-6 py-10">
+      <div className="mb-8">
+        <button
+          type="button"
+          onClick={() => router.push("/instructor/courses")}
+          className="mb-3 inline-flex items-center text-sm font-medium text-zinc-500 hover:text-zinc-900"
+        >
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Back to my courses
+        </button>
 
-                  {course.status && (
-                    <Badge variant="outline">{course.status}</Badge>
-                  )}
+        <Card className="overflow-hidden">
+          <CardHeader>
+            {courseLoading ? (
+              <>
+                <CardTitle>Loading course...</CardTitle>
+                <CardDescription>
+                  Please wait while we load the course information.
+                </CardDescription>
+              </>
+            ) : course ? (
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <CardTitle className="text-2xl">{course.title}</CardTitle>
 
-                  <Badge>{course.level}</Badge>
+                    {course.status && (
+                      <Badge variant="outline">{course.status}</Badge>
+                    )}
 
-                  {course.isActive === false && (
-                    <Badge variant="destructive">Inactive</Badge>
-                  )}
+                    {course.level && <Badge>{course.level}</Badge>}
+
+                    {course.isActive === false && (
+                      <Badge variant="destructive">Inactive</Badge>
+                    )}
+                  </div>
+
+                  <CardDescription className="text-base">
+                    {course.shortDescription}
+                  </CardDescription>
                 </div>
 
-                <CardDescription className="text-base">
-                  {course.shortDescription}
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() =>
+                      router.push(`/instructor/courses/${courseId}/edit`)
+                    }
+                  >
+                    Edit Course Info
+                  </Button>
+
+                  {course.thumbnailUrl && (
+                    <img
+                      src={course.thumbnailUrl}
+                      alt={course.title}
+                      className="h-28 w-full rounded-lg object-cover md:w-44"
+                    />
+                  )}
+                </div>
+              </div>
+            ) : (
+              <>
+                <CardTitle>Course not found</CardTitle>
+                <CardDescription>
+                  This course could not be found in your instructor course list.
                 </CardDescription>
-              </div>
-
-              {course.thumbnailUrl && (
-                <img
-                  src={course.thumbnailUrl}
-                  alt={course.title}
-                  className="h-28 w-full rounded-lg object-cover md:w-44"
-                />
-              )}
-            </div>
-          ) : (
-            <>
-              <CardTitle>Course not found</CardTitle>
-              <CardDescription>
-                This course could not be found in your instructor course list.
-              </CardDescription>
-            </>
-          )}
-        </CardHeader>
-
-        {course && (
-          <CardContent>
-            <div className="grid gap-3 text-sm text-muted-foreground md:grid-cols-4">
-              <div>
-                <p className="font-medium text-foreground">Language</p>
-                <p>{course.language || "Not set"}</p>
-              </div>
-
-              <div>
-                <p className="font-medium text-foreground">Price</p>
-                <p>
-                  {typeof course.price === "number"
-                    ? `$${course.price}`
-                    : "Free / Not set"}
-                </p>
-              </div>
-
-              <div>
-                <p className="font-medium text-foreground">Certificate</p>
-                <p>{course.certificateEnabled ? "Enabled" : "Disabled"}</p>
-              </div>
-
-              <div>
-                <p className="font-medium text-foreground">Course ID</p>
-                <p className="truncate">{course.id}</p>
-              </div>
-            </div>
-
-            {course.description && (
-              <div className="mt-4 border-t pt-4">
-                <p className="text-sm font-medium text-foreground">
-                  Description
-                </p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {course.description}
-                </p>
-              </div>
+              </>
             )}
-          </CardContent>
-        )}
-      </Card>
+          </CardHeader>
+
+          {course && (
+            <CardContent>
+              <div className="grid gap-3 text-sm text-muted-foreground md:grid-cols-4">
+                <div>
+                  <p className="font-medium text-foreground">Language</p>
+                  <p>{course.language || "Not set"}</p>
+                </div>
+
+                <div>
+                  <p className="font-medium text-foreground">Price</p>
+                  <p>
+                    {typeof course.price === "number"
+                      ? `${course.price}`
+                      : "Free / Not set"}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="font-medium text-foreground">Certificate</p>
+                  <p>{course.certificateEnabled ? "Enabled" : "Disabled"}</p>
+                </div>
+
+                <div>
+                  <p className="font-medium text-foreground">Course ID</p>
+                  <p className="truncate">{course.id}</p>
+                </div>
+              </div>
+            </CardContent>
+          )}
+        </Card>
+      </div>
 
       {error && (
         <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {error}
+          {Array.isArray(error) ? error.join(", ") : error}
+        </div>
+      )}
+
+      {successMessage && (
+        <div className="mb-4 flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          <CheckCircle2 className="mr-2 h-4 w-4" />
+          {successMessage}
         </div>
       )}
 
@@ -528,6 +787,7 @@ export default function CourseCurriculumPage() {
               placeholder="Section title"
               required
               maxLength={255}
+              disabled={!canEditDraft}
             />
 
             <Textarea
@@ -535,9 +795,10 @@ export default function CourseCurriculumPage() {
               onChange={(event) => setSectionDescription(event.target.value)}
               placeholder="Section description"
               maxLength={1000}
+              disabled={!canEditDraft}
             />
 
-            <Button type="submit" disabled={creatingSection}>
+            <Button type="submit" disabled={creatingSection || !canEditDraft}>
               <PlusCircle className="mr-2 h-4 w-4" />
               {creatingSection ? "Creating..." : "Add Section"}
             </Button>
@@ -577,6 +838,7 @@ export default function CourseCurriculumPage() {
                           onChange={(event) =>
                             setEditSectionTitle(event.target.value)
                           }
+                          disabled={!canEditDraft}
                         />
 
                         <Textarea
@@ -584,12 +846,14 @@ export default function CourseCurriculumPage() {
                           onChange={(event) =>
                             setEditSectionDescription(event.target.value)
                           }
+                          disabled={!canEditDraft}
                         />
 
                         <div className="flex gap-2">
                           <Button
                             size="sm"
                             onClick={() => handleUpdateSection(section.id)}
+                            disabled={!canEditDraft}
                           >
                             <Save className="mr-2 h-4 w-4" />
                             Save
@@ -608,7 +872,7 @@ export default function CourseCurriculumPage() {
                     ) : (
                       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                         <div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <CardTitle>
                               Section {sectionIndex + 1}: {section.title}
                             </CardTitle>
@@ -634,6 +898,7 @@ export default function CourseCurriculumPage() {
                             size="sm"
                             variant="outline"
                             onClick={() => handleToggleSection(section)}
+                            disabled={!canEditDraft}
                           >
                             {section.isActive ? "Disable" : "Enable"}
                           </Button>
@@ -642,6 +907,7 @@ export default function CourseCurriculumPage() {
                             size="sm"
                             variant="outline"
                             onClick={() => startEditSection(section)}
+                            disabled={!canEditDraft}
                           >
                             <Edit className="mr-2 h-4 w-4" />
                             Edit
@@ -651,6 +917,7 @@ export default function CourseCurriculumPage() {
                             size="sm"
                             variant="destructive"
                             onClick={() => handleDeleteSection(section.id)}
+                            disabled={!canEditDraft}
                           >
                             <Trash2 className="mr-2 h-4 w-4" />
                             Delete
@@ -667,7 +934,7 @@ export default function CourseCurriculumPage() {
                           (lesson: Lesson, lessonIndex: number) => (
                             <div
                               key={lesson.id}
-                              className="rounded-lg border bg-background p-4"
+                              className="rounded-xl border bg-background p-4"
                             >
                               {editingLessonId === lesson.id ? (
                                 <div className="space-y-3">
@@ -676,6 +943,7 @@ export default function CourseCurriculumPage() {
                                     onChange={(event) =>
                                       setEditLessonTitle(event.target.value)
                                     }
+                                    disabled={!canEditDraft}
                                   />
 
                                   <Textarea
@@ -685,6 +953,7 @@ export default function CourseCurriculumPage() {
                                         event.target.value
                                       )
                                     }
+                                    disabled={!canEditDraft}
                                   />
 
                                   <div className="flex gap-2">
@@ -696,6 +965,7 @@ export default function CourseCurriculumPage() {
                                           lesson.id
                                         )
                                       }
+                                      disabled={!canEditDraft}
                                     >
                                       Save
                                     </Button>
@@ -710,97 +980,188 @@ export default function CourseCurriculumPage() {
                                   </div>
                                 </div>
                               ) : (
-                                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                                  <div>
-                                    <div className="flex items-center gap-2">
-                                      <p className="font-medium">
-                                        Lesson {lessonIndex + 1}: {lesson.title}
-                                      </p>
+                                <div className="space-y-4">
+                                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                    <div>
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <p className="font-medium">
+                                          Lesson {lessonIndex + 1}:{" "}
+                                          {lesson.title}
+                                        </p>
 
-                                      <Badge
-                                        variant={
-                                          lesson.isActive
-                                            ? "default"
-                                            : "secondary"
-                                        }
-                                      >
-                                        {lesson.isActive
-                                          ? "Active"
-                                          : "Inactive"}
-                                      </Badge>
+                                        <Badge
+                                          variant={
+                                            lesson.isActive
+                                              ? "default"
+                                              : "secondary"
+                                          }
+                                        >
+                                          {lesson.isActive
+                                            ? "Active"
+                                            : "Inactive"}
+                                        </Badge>
+                                      </div>
+
+                                      {lesson.description && (
+                                        <p className="mt-1 text-sm text-muted-foreground">
+                                          {lesson.description}
+                                        </p>
+                                      )}
                                     </div>
 
-                                    {lesson.description && (
-                                      <p className="mt-1 text-sm text-muted-foreground">
-                                        {lesson.description}
-                                      </p>
-                                    )}
+                                    <div className="flex flex-wrap gap-2">
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        disabled={
+                                          lessonIndex === 0 || !canEditDraft
+                                        }
+                                        onClick={() =>
+                                          moveLesson(
+                                            section.id,
+                                            lesson.id,
+                                            "up"
+                                          )
+                                        }
+                                      >
+                                        Up
+                                      </Button>
+
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        disabled={
+                                          lessonIndex ===
+                                            (section.lessons?.length ?? 0) -
+                                              1 || !canEditDraft
+                                        }
+                                        onClick={() =>
+                                          moveLesson(
+                                            section.id,
+                                            lesson.id,
+                                            "down"
+                                          )
+                                        }
+                                      >
+                                        Down
+                                      </Button>
+
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() =>
+                                          handleToggleLesson(
+                                            section.id,
+                                            lesson
+                                          )
+                                        }
+                                        disabled={!canEditDraft}
+                                      >
+                                        {lesson.isActive
+                                          ? "Disable"
+                                          : "Enable"}
+                                      </Button>
+
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => startEditLesson(lesson)}
+                                        disabled={!canEditDraft}
+                                      >
+                                        Edit
+                                      </Button>
+
+                                      <Button
+                                        size="sm"
+                                        variant="destructive"
+                                        onClick={() =>
+                                          handleDeleteLesson(
+                                            section.id,
+                                            lesson.id
+                                          )
+                                        }
+                                        disabled={!canEditDraft}
+                                      >
+                                        Delete
+                                      </Button>
+                                    </div>
                                   </div>
 
-                                  <div className="flex flex-wrap gap-2">
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      disabled={lessonIndex === 0}
-                                      onClick={() =>
-                                        moveLesson(
-                                          section.id,
-                                          lesson.id,
-                                          "up"
-                                        )
-                                      }
-                                    >
-                                      Up
-                                    </Button>
+                                  <div className="rounded-lg border bg-muted/30 p-3">
+                                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                      <div>
+                                        <p className="text-sm font-medium">
+                                          Lesson Media
+                                        </p>
+                                        <p className="text-xs text-muted-foreground">
+                                          Choose a video, image, PDF, or raw file
+                                          and preview before uploading.
+                                        </p>
+                                      </div>
 
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      disabled={
-                                        lessonIndex ===
-                                        (section.lessons?.length ?? 0) - 1
-                                      }
-                                      onClick={() =>
-                                        moveLesson(
-                                          section.id,
-                                          lesson.id,
-                                          "down"
-                                        )
-                                      }
-                                    >
-                                      Down
-                                    </Button>
+                                      <label className="inline-flex cursor-pointer items-center justify-center rounded-md border bg-background px-3 py-2 text-sm font-medium hover:bg-muted">
+                                        <FileUp className="mr-2 h-4 w-4" />
+                                        Select Media
+                                        <input
+                                          type="file"
+                                          className="hidden"
+                                          disabled={
+                                            !canEditDraft ||
+                                            uploading?.lessonId === lesson.id
+                                          }
+                                          onChange={(event) => {
+                                            const file =
+                                              event.target.files?.[0];
 
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      onClick={() =>
-                                        handleToggleLesson(section.id, lesson)
-                                      }
-                                    >
-                                      {lesson.isActive ? "Disable" : "Enable"}
-                                    </Button>
+                                            if (file) {
+                                              handleSelectLessonFile(
+                                                section.id,
+                                                lesson,
+                                                file
+                                              );
+                                            }
 
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      onClick={() => startEditLesson(lesson)}
-                                    >
-                                      Edit
-                                    </Button>
+                                            event.target.value = "";
+                                          }}
+                                        />
+                                      </label>
+                                    </div>
 
-                                    <Button
-                                      size="sm"
-                                      variant="destructive"
-                                      onClick={() =>
-                                        handleDeleteLesson(
-                                          section.id,
-                                          lesson.id
-                                        )
-                                      }
-                                    >
-                                      Delete
-                                    </Button>
+                                    {uploading?.lessonId === lesson.id && (
+                                      <p className="mt-2 text-xs text-blue-600">
+                                        {uploading.progressText}
+                                      </p>
+                                    )}
+
+                                    {uploadedFiles[lesson.id]?.length ? (
+                                      <div className="mt-3 space-y-2">
+                                        {uploadedFiles[lesson.id].map(
+                                          (file) => (
+                                            <a
+                                              key={file.id}
+                                              href={file.url}
+                                              target="_blank"
+                                              rel="noreferrer"
+                                              className="block rounded-md border bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                                            >
+                                              <span className="font-medium">
+                                                {file.filename ||
+                                                  "Uploaded file"}
+                                              </span>
+                                              <span className="ml-2 text-xs text-zinc-500">
+                                                {file.type}
+                                              </span>
+                                            </a>
+                                          )
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <p className="mt-2 text-xs text-muted-foreground">
+                                        Newly uploaded files will appear here.
+                                        Existing lesson files need a GET files
+                                        API to load them from backend.
+                                      </p>
+                                    )}
                                   </div>
                                 </div>
                               )}
@@ -828,6 +1189,7 @@ export default function CourseCurriculumPage() {
                           required
                           minLength={3}
                           maxLength={255}
+                          disabled={!canEditDraft}
                         />
 
                         <Textarea
@@ -837,10 +1199,15 @@ export default function CourseCurriculumPage() {
                           }
                           placeholder="Lesson description"
                           maxLength={2000}
+                          disabled={!canEditDraft}
                         />
 
                         <div className="flex gap-2">
-                          <Button type="submit" size="sm">
+                          <Button
+                            type="submit"
+                            size="sm"
+                            disabled={!canEditDraft}
+                          >
                             Add Lesson
                           </Button>
 
@@ -863,6 +1230,7 @@ export default function CourseCurriculumPage() {
                         size="sm"
                         variant="outline"
                         onClick={() => setLessonFormSectionId(section.id)}
+                        disabled={!canEditDraft}
                       >
                         <PlusCircle className="mr-2 h-4 w-4" />
                         Add Lesson
@@ -874,6 +1242,105 @@ export default function CourseCurriculumPage() {
             </div>
           </SortableContext>
         </DndContext>
+      )}
+
+      {pendingUpload && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-zinc-900">
+                  Preview lesson media
+                </h2>
+                <p className="mt-1 text-sm text-zinc-500">
+                  Check the selected file before uploading it to this lesson.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={cancelPendingUpload}
+                disabled={Boolean(uploading)}
+                className="rounded-md p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="rounded-xl border bg-zinc-50 p-4">
+              {pendingUpload.mediaType === "IMAGE" &&
+              pendingUpload.previewUrl ? (
+                <img
+                  src={pendingUpload.previewUrl}
+                  alt={pendingUpload.file.name}
+                  className="max-h-72 w-full rounded-lg object-contain"
+                />
+              ) : pendingUpload.mediaType === "VIDEO" &&
+                pendingUpload.previewUrl ? (
+                <video
+                  src={pendingUpload.previewUrl}
+                  controls
+                  className="max-h-72 w-full rounded-lg"
+                />
+              ) : (
+                <div className="flex min-h-40 flex-col items-center justify-center rounded-lg border border-dashed bg-white p-6 text-center">
+                  <FileUp className="mb-3 h-8 w-8 text-zinc-400" />
+                  <p className="text-sm font-medium text-zinc-800">
+                    {pendingUpload.file.name}
+                  </p>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    This file cannot be previewed directly. It will be uploaded
+                    as {pendingUpload.mediaType}.
+                  </p>
+                </div>
+              )}
+
+              <div className="mt-4 space-y-1 text-sm text-zinc-600">
+                <p>
+                  <span className="font-medium text-zinc-900">Lesson:</span>{" "}
+                  {pendingUpload.lesson.title}
+                </p>
+                <p>
+                  <span className="font-medium text-zinc-900">File:</span>{" "}
+                  {pendingUpload.file.name}
+                </p>
+                <p>
+                  <span className="font-medium text-zinc-900">Type:</span>{" "}
+                  {pendingUpload.file.type || "Unknown"}
+                </p>
+                <p>
+                  <span className="font-medium text-zinc-900">Size:</span>{" "}
+                  {formatFileSize(pendingUpload.file.size)}
+                </p>
+              </div>
+            </div>
+
+            {uploading?.lessonId === pendingUpload.lesson.id && (
+              <p className="mt-3 text-sm text-blue-600">
+                {uploading.progressText}
+              </p>
+            )}
+
+            <div className="mt-6 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={cancelPendingUpload}
+                disabled={Boolean(uploading)}
+              >
+                Cancel
+              </Button>
+
+              <Button
+                type="button"
+                onClick={handleConfirmUploadLessonFile}
+                disabled={Boolean(uploading)}
+              >
+                {uploading ? "Uploading..." : "Confirm Upload"}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </main>
   );
