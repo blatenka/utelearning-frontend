@@ -51,6 +51,18 @@ export default function AuthPage() {
   const searchParams = useSearchParams();
   const { login, register } = useAuth();
 
+  const redirect = useMemo(() => {
+    const value = searchParams.get("redirect");
+
+    if (!value) return "/dashboard";
+
+    if (!value.startsWith("/") || value.startsWith("//")) {
+      return "/dashboard";
+    }
+
+    return value;
+  }, [searchParams]);
+
   const [mode, setMode] = useState<AuthMode>("login");
 
   const [fullName, setFullName] = useState("");
@@ -109,10 +121,20 @@ export default function AuthPage() {
     setShowConfirmPassword(false);
     setConfirmPassword("");
 
-    const url =
-      nextMode === "register" ? "/auth?tab=register" : "/auth?tab=login";
+    const params = new URLSearchParams();
+    params.set("tab", nextMode);
 
-    router.replace(url);
+    const currentRedirect = searchParams.get("redirect");
+
+    if (
+      currentRedirect &&
+      currentRedirect.startsWith("/") &&
+      !currentRedirect.startsWith("//")
+    ) {
+      params.set("redirect", currentRedirect);
+    }
+
+    router.replace(`/auth?${params.toString()}`);
   }
 
   function getErrorMessage(err: any) {
@@ -198,7 +220,7 @@ export default function AuthPage() {
         await register(registerPayload);
       }
 
-      router.push("/dashboard");
+      router.replace(redirect);
     } catch (err: any) {
       setError(getErrorMessage(err));
     } finally {
@@ -242,7 +264,7 @@ export default function AuthPage() {
 
           popup.close();
           window.removeEventListener("message", handleMessage);
-          router.push("/dashboard");
+          router.replace(redirect);
         }
       } else if (event.data.type === "GOOGLE_LOGIN_ERROR") {
         setError(event.data.message || "Google login failed");
@@ -336,6 +358,12 @@ export default function AuthPage() {
               <p className="mt-2 text-sm leading-6 text-zinc-500">
                 {subtitle}
               </p>
+
+              {redirect !== "/dashboard" && (
+                <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+                  After signing in, you will return to your selected course.
+                </div>
+              )}
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-5">

@@ -41,25 +41,11 @@ interface Course {
 function normalizeCoursesResponse(responseData: any): Course[] {
   const payload = responseData?.data;
 
-  if (Array.isArray(payload)) {
-    return payload;
-  }
-
-  if (Array.isArray(payload?.data)) {
-    return payload.data;
-  }
-
-  if (Array.isArray(payload?.courses)) {
-    return payload.courses;
-  }
-
-  if (Array.isArray(payload?.items)) {
-    return payload.items;
-  }
-
-  if (Array.isArray(payload?.results)) {
-    return payload.results;
-  }
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.courses)) return payload.courses;
+  if (Array.isArray(payload?.items)) return payload.items;
+  if (Array.isArray(payload?.results)) return payload.results;
 
   return [];
 }
@@ -67,21 +53,10 @@ function normalizeCoursesResponse(responseData: any): Course[] {
 function normalizeCategoriesResponse(responseData: any): Category[] {
   const payload = responseData?.data;
 
-  if (Array.isArray(payload)) {
-    return payload;
-  }
-
-  if (Array.isArray(payload?.data)) {
-    return payload.data;
-  }
-
-  if (Array.isArray(payload?.categories)) {
-    return payload.categories;
-  }
-
-  if (Array.isArray(payload?.items)) {
-    return payload.items;
-  }
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.categories)) return payload.categories;
+  if (Array.isArray(payload?.items)) return payload.items;
 
   return [];
 }
@@ -151,7 +126,9 @@ function TreeCategoryItem({
             aria-label={open ? "Collapse category" : "Expand category"}
           >
             <span
-              className={`text-xs transition-transform ${open ? "rotate-90" : ""}`}
+              className={`text-xs transition-transform ${
+                open ? "rotate-90" : ""
+              }`}
             >
               ›
             </span>
@@ -169,17 +146,18 @@ function TreeCategoryItem({
           {category.name}
         </button>
 
-        {typeof category.courseCount === "number" && category.courseCount > 0 && (
-          <span
-            className={`rounded-full px-2 py-0.5 text-xs ${
-              selectedCategory === category.id
-                ? "bg-white/15 text-white"
-                : "bg-zinc-100 text-zinc-500 group-hover:bg-white"
-            }`}
-          >
-            {category.courseCount}
-          </span>
-        )}
+        {typeof category.courseCount === "number" &&
+          category.courseCount > 0 && (
+            <span
+              className={`rounded-full px-2 py-0.5 text-xs ${
+                selectedCategory === category.id
+                  ? "bg-white/15 text-white"
+                  : "bg-zinc-100 text-zinc-500 group-hover:bg-white"
+              }`}
+            >
+              {category.courseCount}
+            </span>
+          )}
       </div>
 
       {hasChildren && open && (
@@ -340,9 +318,14 @@ export default function DashboardPage() {
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
+
   const [loadingCategories, setLoadingCategories] = useState(true);
   const [loadingCourses, setLoadingCourses] = useState(true);
+
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+
+  const [searchInput, setSearchInput] = useState("");
+  const [submittedSearch, setSubmittedSearch] = useState("");
 
   const selectedCategoryName = useMemo(() => {
     const findCategory = (items: Category[]): Category | null => {
@@ -362,6 +345,24 @@ export default function DashboardPage() {
 
     return findCategory(categories)?.name || null;
   }, [categories, selectedCategory]);
+
+  const hasActiveFilters = Boolean(selectedCategory || submittedSearch.trim());
+
+  const sectionTitle = useMemo(() => {
+    if (selectedCategoryName && submittedSearch.trim()) {
+      return `Search results in ${selectedCategoryName}`;
+    }
+
+    if (selectedCategoryName) {
+      return selectedCategoryName;
+    }
+
+    if (submittedSearch.trim()) {
+      return "Search results";
+    }
+
+    return "Featured courses";
+  }, [selectedCategoryName, submittedSearch]);
 
   useEffect(() => {
     const fetchCategories = async () => {
@@ -397,13 +398,14 @@ export default function DashboardPage() {
           params.categoryId = selectedCategory;
         }
 
+        if (submittedSearch.trim()) {
+          params.search = submittedSearch.trim();
+        }
+
         const res = await courseAPI.getPublicCourses(params);
         const courseData = normalizeCoursesResponse(res.data);
 
         setCourses(courseData);
-
-        console.log("Public courses response:", res.data);
-        console.log("Normalized courses:", courseData);
       } catch (error) {
         console.error("Failed to load courses:", error);
         setCourses([]);
@@ -413,7 +415,22 @@ export default function DashboardPage() {
     };
 
     fetchCourses();
-  }, [selectedCategory]);
+  }, [selectedCategory, submittedSearch]);
+
+  function handleSearchSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSubmittedSearch(searchInput.trim());
+  }
+
+  function clearSearchInput() {
+    setSearchInput("");
+  }
+
+  function clearFilters() {
+    setSelectedCategory(null);
+    setSearchInput("");
+    setSubmittedSearch("");
+  }
 
   if (loading) {
     return (
@@ -436,7 +453,9 @@ export default function DashboardPage() {
             </p>
 
             <h1 className="text-4xl font-semibold tracking-tight text-zinc-900 sm:text-5xl">
-              {user ? `Keep learning, ${user.fullName}` : "Learn without limits"}
+              {user
+                ? `Keep learning, ${user.fullName}`
+                : "Learn without limits"}
             </h1>
 
             <p className="mt-4 text-base text-zinc-600 sm:text-lg">
@@ -485,13 +504,80 @@ export default function DashboardPage() {
         </div>
 
         <section>
+          <div className="mb-6 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+            <form
+              onSubmit={handleSearchSubmit}
+              className="flex flex-col gap-3 md:flex-row md:items-center"
+            >
+              <div className="relative flex-1">
+                <input
+                  value={searchInput}
+                  onChange={(event) => setSearchInput(event.target.value)}
+                  placeholder="Search courses by title or description..."
+                  className="h-11 w-full rounded-xl border border-zinc-300 bg-white px-4 pr-10 text-sm outline-none transition placeholder:text-zinc-400 focus:border-zinc-950 focus:ring-4 focus:ring-zinc-950/10"
+                />
+
+                {searchInput && (
+                  <button
+                    type="button"
+                    onClick={clearSearchInput}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-xs font-medium text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+
+              <button
+                type="submit"
+                className="h-11 rounded-xl bg-zinc-900 px-5 text-sm font-medium text-white transition hover:bg-zinc-800"
+              >
+                Search
+              </button>
+
+              {hasActiveFilters && (
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="h-11 rounded-xl border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50"
+                >
+                  Clear filters
+                </button>
+              )}
+            </form>
+
+            {hasActiveFilters && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {submittedSearch && (
+                  <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
+                    Search: {submittedSearch}
+                  </span>
+                )}
+
+                {selectedCategoryName && (
+                  <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">
+                    Category: {selectedCategoryName}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {searchInput !== submittedSearch && searchInput.trim() && (
+              <p className="mt-3 text-xs text-zinc-500">
+                Press Enter or click Search to apply your keyword.
+              </p>
+            )}
+          </div>
+
           <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h2 className="text-2xl font-semibold text-zinc-900">
-                {selectedCategoryName || "Featured courses"}
+                {sectionTitle}
               </h2>
               <p className="text-sm text-zinc-500">
-                {loadingCourses ? "Loading courses..." : `${courses.length} courses`}
+                {loadingCourses
+                  ? "Loading courses..."
+                  : `${courses.length} courses`}
               </p>
             </div>
           </div>
@@ -514,8 +600,19 @@ export default function DashboardPage() {
                 No courses found
               </p>
               <p className="mt-2 text-sm text-zinc-500">
-                Try another category or check whether the course is published and active.
+                Try another keyword, another category, or check whether the
+                course is published and active.
               </p>
+
+              {hasActiveFilters && (
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="mt-5 rounded-xl bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800"
+                >
+                  Clear filters
+                </button>
+              )}
             </div>
           )}
         </section>
