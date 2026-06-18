@@ -7,6 +7,7 @@ import {
   reviewerCourseService,
   unwrapList,
 } from "@/services/review.service";
+import RoleGuard from "@/components/RoleGuard";
 
 type CourseCategorySummary = {
   id: string;
@@ -64,7 +65,7 @@ function getCourseInstructors(course: CourseResponseDto) {
 }
 
 export default function ReviewerAvailableCoursesPage() {
-  const { user, loading: authLoading } = useAuth();
+  const { user } = useAuth();
 
   const [courses, setCourses] = useState<CourseResponseDto[]>([]);
   const [loading, setLoading] = useState(false);
@@ -140,38 +141,14 @@ export default function ReviewerAvailableCoursesPage() {
   }
 
   useEffect(() => {
-    if (!authLoading && user?.role === "REVIEWER") {
-      fetchAvailableCourses();
-    }
-  }, [authLoading, user?.role]);
-
-  if (authLoading) {
-    return (
-      <main className="mx-auto max-w-6xl px-6 py-10">
-        <p className="text-sm text-zinc-500">Loading...</p>
-      </main>
-    );
-  }
-
-  if (!user || user.role !== "REVIEWER") {
-    return (
-      <main className="mx-auto max-w-6xl px-6 py-10">
-        <div className="rounded-2xl border bg-white p-6 shadow-sm">
-          <h1 className="text-xl font-semibold text-zinc-900">
-            Access denied
-          </h1>
-          <p className="mt-1 text-sm text-zinc-500">
-            You need to sign in as a reviewer to access this page.
-          </p>
-        </div>
-      </main>
-    );
-  }
+    fetchAvailableCourses();
+  }, []);
 
   return (
-    <main className="mx-auto max-w-6xl px-6 py-10">
-      <div className="mb-8 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <div>
+    <RoleGuard allowedRoles={["REVIEWER"]}>
+      <main className="mx-auto max-w-6xl px-6 py-10">
+        <div className="mb-8 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div>
           <h1 className="text-3xl font-bold tracking-tight text-zinc-900">
             Available Courses
           </h1>
@@ -319,5 +296,6 @@ export default function ReviewerAvailableCoursesPage() {
         </div>
       )}
     </main>
+    </RoleGuard>
   );
 }

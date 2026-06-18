@@ -18,9 +18,10 @@ import {
   unwrapList,
 } from "@/services/instructor-course.service";
 import { useAuth } from "@/providers/AuthProvider";
+import RoleGuard from "@/components/RoleGuard";
 
 export default function InstructorCoursesPage() {
-  const { user, loading: authLoading } = useAuth();
+  const { user } = useAuth();
 
   const [courses, setCourses] = useState<InstructorCourse[]>([]);
   const [loading, setLoading] = useState(false);
@@ -68,36 +69,12 @@ export default function InstructorCoursesPage() {
   }
 
   useEffect(() => {
-    if (!authLoading && user?.role === "INSTRUCTOR") {
-      fetchCourses();
-    }
-  }, [authLoading, user?.role]);
-
-  if (authLoading) {
-    return (
-      <main className="mx-auto max-w-6xl px-6 py-10">
-        <p className="text-muted-foreground">Loading...</p>
-      </main>
-    );
-  }
-
-  if (!user || user.role !== "INSTRUCTOR") {
-    return (
-      <main className="mx-auto max-w-6xl px-6 py-10">
-        <Card>
-          <CardHeader>
-            <CardTitle>Access denied</CardTitle>
-            <CardDescription>
-              You need to sign in as an instructor to access this page.
-            </CardDescription>
-          </CardHeader>
-        </Card>
-      </main>
-    );
-  }
+    fetchCourses();
+  }, []);
 
   return (
-    <main className="mx-auto max-w-6xl px-6 py-10">
+    <RoleGuard allowedRoles={["INSTRUCTOR"]}>
+      <main className="mx-auto max-w-6xl px-6 py-10">
       <div className="mb-8 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">My Courses</h1>
@@ -202,6 +179,7 @@ export default function InstructorCoursesPage() {
           ))}
         </div>
       )}
-    </main>
+      </main>
+    </RoleGuard>
   );
 }

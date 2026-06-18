@@ -18,6 +18,7 @@ import {
   CourseLevel,
   unwrapData,
 } from "@/services/instructor-course.service";
+import RoleGuard from "@/components/RoleGuard";
 
 type Category = {
   id: string;
@@ -110,24 +111,25 @@ export default function CreateInstructorCoursePage() {
   }, []);
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-10">
-      <Card>
-        <CardHeader>
-          <CardTitle>Create Draft Course</CardTitle>
-          <CardDescription>
-            Create the basic information first. After that, you can add sections
-            and lessons.
-          </CardDescription>
-        </CardHeader>
+    <RoleGuard allowedRoles={["INSTRUCTOR"]}>
+      <main className="mx-auto max-w-3xl px-6 py-10">
+        <Card>
+          <CardHeader>
+            <CardTitle>Create Draft Course</CardTitle>
+            <CardDescription>
+              Create the basic information first. After that, you can add sections
+              and lessons.
+            </CardDescription>
+          </CardHeader>
 
-        <CardContent>
-          {error && (
-            <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              {Array.isArray(error) ? error.join(", ") : error}
-            </div>
-          )}
+          <CardContent>
+            {error && (
+              <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                {Array.isArray(error) ? error.join(", ") : error}
+              </div>
+            )}
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+            <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-2">
               <label className="text-sm font-medium">Course title</label>
               <Input
@@ -250,5 +252,6 @@ export default function CreateInstructorCoursePage() {
         </CardContent>
       </Card>
     </main>
+    </RoleGuard>
   );
 }

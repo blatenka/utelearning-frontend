@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { BookOpenCheck, ClipboardList, ShieldCheck } from "lucide-react";
+import RoleGuard from "@/components/RoleGuard";
 import { useAuth } from "@/providers/AuthProvider";
 
 export default function ReviewerPage() {
@@ -15,21 +16,26 @@ export default function ReviewerPage() {
     );
   }
 
-  if (!user || user.role !== "REVIEWER") {
-    return (
-      <main className="mx-auto max-w-6xl px-6 py-10">
-        <div className="rounded-2xl border bg-white p-6 shadow-sm">
-          <h1 className="text-xl font-semibold text-zinc-900">
-            Access denied
-          </h1>
-          <p className="mt-1 text-sm text-zinc-500">
-            You need to sign in as a reviewer to access this page.
-          </p>
-        </div>
-      </main>
-    );
-  }
+  return (
+    <RoleGuard allowedRoles={["REVIEWER"]}>
+      <ReviewerDashboard
+        fullName={user?.fullName || "Reviewer"}
+        email={user?.email || "No email"}
+        role={user?.role || "REVIEWER"}
+      />
+    </RoleGuard>
+  );
+}
 
+function ReviewerDashboard({
+  fullName,
+  email,
+  role,
+}: {
+  fullName: string;
+  email: string;
+  role: string;
+}) {
   return (
     <main className="mx-auto max-w-6xl px-6 py-10">
       <section className="overflow-hidden rounded-3xl border bg-white shadow-sm">
@@ -42,7 +48,7 @@ export default function ReviewerPage() {
               </div>
 
               <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
-                Welcome back, {user.fullName || "Reviewer"}
+                Welcome back, {fullName}
               </h1>
 
               <p className="mt-3 max-w-2xl text-sm leading-6 text-zinc-300">
@@ -54,9 +60,9 @@ export default function ReviewerPage() {
 
             <div className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4">
               <p className="text-sm text-zinc-300">Signed in as</p>
-              <p className="mt-1 font-semibold text-white">{user.email}</p>
+              <p className="mt-1 font-semibold text-white">{email}</p>
               <p className="mt-1 text-xs uppercase tracking-wide text-zinc-400">
-                {user.role}
+                {role}
               </p>
             </div>
           </div>

@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { useAuth } from "@/providers/AuthProvider";
+import RoleGuard from "@/components/RoleGuard";
 
 type Category = {
   id: string;
@@ -433,23 +434,8 @@ export default function AdminCategoriesPage() {
     return <div className="p-6 text-center text-zinc-500">Loading...</div>;
   }
 
-  if (!user) {
-    return (
-      <div className="p-6 text-center text-red-500">
-        Please log in as an admin to view this page.
-      </div>
-    );
-  }
-
-  if (!isAdmin) {
-    return (
-      <div className="p-6 text-center text-red-500">
-        Access denied. Admins only.
-      </div>
-    );
-  }
-
   return (
+  <RoleGuard allowedRoles={["ADMIN"]}>
     <>
       <div className="min-h-screen bg-zinc-50 p-6">
         <div className="mx-auto max-w-[1500px] space-y-6">
@@ -556,7 +542,8 @@ export default function AdminCategoriesPage() {
                   {categories
                     .filter(
                       (category) =>
-                        category.id !== selectedCategoryId && !category.deletedAt
+                        category.id !== selectedCategoryId &&
+                        !category.deletedAt
                     )
                     .map((category) => (
                       <option key={category.id} value={category.id}>
@@ -846,7 +833,9 @@ export default function AdminCategoriesPage() {
                       <tr
                         key={category.id}
                         className={`border-b border-zinc-100 transition hover:bg-zinc-50 ${
-                          selectedCategoryId === category.id ? "bg-blue-50/60" : ""
+                          selectedCategoryId === category.id
+                            ? "bg-blue-50/60"
+                            : ""
                         } ${category.deletedAt ? "opacity-75" : ""}`}
                       >
                         <td className="max-w-[180px] truncate px-4 py-3 font-mono text-xs text-zinc-500">
@@ -1056,5 +1045,6 @@ export default function AdminCategoriesPage() {
         </div>
       )}
     </>
-  );
+  </RoleGuard>
+); 
 }
