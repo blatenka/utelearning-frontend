@@ -400,7 +400,7 @@ export default function AuthPage() {
                       id="dateOfBirth"
                       type="datetime-local"
                       value={dateOfBirth}
-                      onChange={(e) => setDateOfBirth(e.target.value)}
+                      onChange={(e) => {setDateOfBirth(e.target.value)}}
                       disabled={loading}
                       className="h-11 w-full rounded-xl border border-zinc-300 bg-white px-4 text-sm outline-none transition placeholder:text-zinc-400 focus:border-zinc-950 focus:ring-4 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:bg-zinc-100"
                     />

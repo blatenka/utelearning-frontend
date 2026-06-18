@@ -356,12 +356,20 @@ export const reviewerCourseService = {
   },
 
   claimCourse(courseId: string) {
+    if (!courseId || courseId === "undefined") {
+      throw new Error("Missing courseId when claiming course.");
+    }
+
     return api.post<ClaimCourseReviewResponse>(
       `/v1/reviewer/courses/${courseId}/claim`
     );
   },
 
   getReviewWorkspace(reviewId: string) {
+    if (!reviewId || reviewId === "undefined") {
+      throw new Error("Missing reviewId when loading review workspace.");
+    }
+
     return api.get<ReviewerCourseReviewWorkspace>(
       `/v1/reviewer/courses/${reviewId}`
     );
@@ -371,6 +379,10 @@ export const reviewerCourseService = {
     reviewId: string,
     payload: SubmitCourseReviewDecisionPayload
   ) {
+    if (!reviewId || reviewId === "undefined") {
+      throw new Error("Missing reviewId when submitting review decision.");
+    }
+
     return api.patch<SubmitCourseReviewDecisionResponse>(
       `/v1/reviewer/courses/${reviewId}/decision`,
       payload

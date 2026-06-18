@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import api from "@/lib/api";
 
+
 type Gender = "MALE" | "FEMALE" | "OTHER" | "PREFER_NOT_TO_SAY";
 
 type User = {
@@ -108,23 +109,27 @@ export default function AuthProvider({
     localStorage.setItem("user", JSON.stringify(userData));
   }
 
-  async function logout() {
-    try {
-      await api.post("/v1/auth/logout");
-    } catch (error) {
-      console.error("Logout error:", error);
-    }
-
+async function logout() {
+  try {
+    await api.post("/v1/auth/logout");
+  } catch (error) {
+    console.error("Logout error:", error);
+  } finally {
     clearAuth();
-  }
 
-  function clearAuth() {
-    localStorage.removeItem("accessToken");
-    localStorage.removeItem("user");
-
-    setToken(null);
-    setUser(null);
+    if (typeof window !== "undefined") {
+      window.location.href = "/";
+    }
   }
+}
+
+function clearAuth() {
+  localStorage.removeItem("accessToken");
+  localStorage.removeItem("user");
+
+  setToken(null);
+  setUser(null);
+}
 
   /**
    * Refresh access token using the refresh endpoint

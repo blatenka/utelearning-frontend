@@ -8,44 +8,65 @@ import {
   unwrapList,
 } from "@/services/review.service";
 
-import type { ReviewerAvailableCourse } from "@/services/review.service";
+type CourseCategorySummary = {
+  id: string;
+  name: string;
+  slug?: string | null;
+};
 
-function getCourseId(course: ReviewerAvailableCourse) {
-  return course.courseId || course.course?.id || course.id;
+type CourseInstructorSummary = {
+  id: string;
+  fullName: string;
+  email?: string | null;
+  avatarUrl?: string | null;
+};
+
+type CourseResponseDto = {
+  id: string;
+  title: string;
+  slug?: string | null;
+  shortDescription?: string | null;
+  description?: string | null;
+  thumbnailUrl?: string | null;
+  level?: string | null;
+  language?: string | null;
+  price?: number | null;
+  status?: string;
+  isActive?: boolean;
+  submittedAt?: string | null;
+  updatedAt?: string | null;
+  categories?: CourseCategorySummary[];
+  instructors?: CourseInstructorSummary[];
+};
+
+function getCourseTitle(course: CourseResponseDto) {
+  return course.title || "Untitled course";
 }
 
-function getCourseTitle(course: ReviewerAvailableCourse) {
-  return course.course?.title || course.title || "Untitled course";
+function getCourseDescription(course: CourseResponseDto) {
+  return course.shortDescription || "No short description.";
 }
 
-function getCourseDescription(course: ReviewerAvailableCourse) {
-  return (
-    course.course?.shortDescription ||
-    course.shortDescription ||
-    "No short description."
-  );
+function getCourseThumbnail(course: CourseResponseDto) {
+  return course.thumbnailUrl || "";
 }
 
-function getCourseThumbnail(course: ReviewerAvailableCourse) {
-  return course.course?.thumbnailUrl || course.thumbnailUrl;
+function getCourseLevel(course: CourseResponseDto) {
+  return course.level || "";
 }
 
-function getCourseLevel(course: ReviewerAvailableCourse) {
-  return course.course?.level || course.level;
+function getCourseCategories(course: CourseResponseDto) {
+  return course.categories || [];
 }
 
-function getCourseCategories(course: ReviewerAvailableCourse) {
-  return course.course?.categories || course.categories || [];
-}
-
-function getCourseInstructors(course: ReviewerAvailableCourse) {
-  return course.course?.instructors || course.instructors || [];
+function getCourseInstructors(course: CourseResponseDto) {
+  return course.instructors || [];
 }
 
 export default function ReviewerAvailableCoursesPage() {
   const { user, loading: authLoading } = useAuth();
 
-  const [courses, setCourses] = useState<ReviewerAvailableCourse[]>([]);
+  const [courses, setCourses] = useState<CourseResponseDto[]>([]);
   const [loading, setLoading] = useState(false);
   const [claimingId, setClaimingId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -68,14 +89,19 @@ export default function ReviewerAvailableCoursesPage() {
     try {
       setLoading(true);
       setError("");
+      setSuccessMessage("");
 
       const response = await reviewerCourseService.getAvailableCourses({
         page: 1,
         limit: 30,
       });
 
-      setCourses(unwrapList<ReviewerAvailableCourse>(response));
+      const list = unwrapList<CourseResponseDto>(response);
+
+      setCourses(Array.isArray(list) ? list : []);
     } catch (err: any) {
+      console.error("Load available courses error:", err?.response || err);
+
       setError(
         err?.response?.data?.message || "Failed to load available courses."
       );
@@ -84,11 +110,11 @@ export default function ReviewerAvailableCoursesPage() {
     }
   }
 
-  async function handleClaimCourse(course: ReviewerAvailableCourse) {
-    const courseId = getCourseId(course);
+  async function handleClaimCourse(course: CourseResponseDto) {
+    const courseId = course.id;
 
     if (!courseId) {
-      setError("Cannot claim this course because courseId is missing.");
+      setError("Cannot claim this course because course id is missing.");
       return;
     }
 
@@ -99,14 +125,14 @@ export default function ReviewerAvailableCoursesPage() {
 
       await reviewerCourseService.claimCourse(courseId);
 
-      setCourses((prev) =>
-        prev.filter((item) => getCourseId(item) !== courseId)
-      );
+      setCourses((prev) => prev.filter((item) => item.id !== courseId));
 
       setSuccessMessage(
         "Course claimed successfully. You can find it in My Review Tasks."
       );
     } catch (err: any) {
+      console.error("Claim course error:", err?.response || err);
+
       setError(err?.response?.data?.message || "Failed to claim course.");
     } finally {
       setClaimingId(null);
@@ -198,7 +224,7 @@ export default function ReviewerAvailableCoursesPage() {
       ) : (
         <div className="grid gap-5">
           {filteredCourses.map((course) => {
-            const courseId = getCourseId(course);
+            const courseId = course.id;
             const title = getCourseTitle(course);
             const description = getCourseDescription(course);
             const thumbnailUrl = getCourseThumbnail(course);

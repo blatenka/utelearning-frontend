@@ -6,9 +6,11 @@ import {
   ArrowLeft,
   CheckCircle2,
   FileUp,
+  ImageIcon,
   Save,
   Send,
   Trash2,
+  X,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -37,6 +39,13 @@ import type {
 
 const courseLevels: CourseLevel[] = ["BEGINNER", "INTERMEDIATE", "ADVANCED"];
 
+type PendingThumbnail = {
+  file: File;
+  previewUrl: string;
+  width: number | null;
+  height: number | null;
+} | null;
+
 function linesToArray(value: string) {
   return value
     .split("\n")
@@ -46,6 +55,60 @@ function linesToArray(value: string) {
 
 function arrayToLines(value?: string[]) {
   return Array.isArray(value) ? value.join("\n") : "";
+}
+
+function formatFileSize(size: number) {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(2)} KB`;
+  return `${(size / 1024 / 1024).toFixed(2)} MB`;
+}
+
+function isGoodThumbnailSize(width: number | null, height: number | null) {
+  if (!width || !height) return false;
+
+  return width >= 800 && height >= 450;
+}
+
+function getAspectRatioText(width: number | null, height: number | null) {
+  if (!width || !height) return "Unknown";
+
+  const ratio = width / height;
+
+  if (Math.abs(ratio - 16 / 9) < 0.08) {
+    return "16:9";
+  }
+
+  return `${width}:${height}`;
+}
+
+async function getImageSize(file: File): Promise<{
+  width: number | null;
+  height: number | null;
+}> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+
+    image.onload = () => {
+      const result = {
+        width: image.naturalWidth,
+        height: image.naturalHeight,
+      };
+
+      URL.revokeObjectURL(url);
+      resolve(result);
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve({
+        width: null,
+        height: null,
+      });
+    };
+
+    image.src = url;
+  });
 }
 
 async function uploadImageToCloudinary(
@@ -96,6 +159,9 @@ export default function InstructorCourseEditPage() {
   const [deletingDraft, setDeletingDraft] = useState(false);
   const [uploadingThumbnail, setUploadingThumbnail] = useState(false);
 
+  const [pendingThumbnail, setPendingThumbnail] =
+    useState<PendingThumbnail>(null);
+
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 
@@ -115,6 +181,12 @@ export default function InstructorCourseEditPage() {
 
     return !status || status === "DRAFT" || status === "NEEDS_CHANGES";
   }, [course?.status]);
+
+  const thumbnailIsGoodSize = useMemo(() => {
+    if (!pendingThumbnail) return false;
+
+    return isGoodThumbnailSize(pendingThumbnail.width, pendingThumbnail.height);
+  }, [pendingThumbnail]);
 
   function fillCourseForm(currentCourse: InstructorCourse) {
     setTitle(currentCourse.title ?? "");
@@ -162,11 +234,48 @@ export default function InstructorCourseEditPage() {
     }
   }
 
-  async function handleUploadThumbnail(file: File) {
+  async function handleSelectThumbnail(file: File) {
+    setError("");
+    setSuccessMessage("");
+
     if (!file.type.startsWith("image/")) {
       setError("Thumbnail must be an image file.");
       return;
     }
+
+    const maxSizeInMb = 5;
+    const maxSizeInBytes = maxSizeInMb * 1024 * 1024;
+
+    if (file.size > maxSizeInBytes) {
+      setError(`Thumbnail must be smaller than ${maxSizeInMb}MB.`);
+      return;
+    }
+
+    if (pendingThumbnail?.previewUrl) {
+      URL.revokeObjectURL(pendingThumbnail.previewUrl);
+    }
+
+    const previewUrl = URL.createObjectURL(file);
+    const size = await getImageSize(file);
+
+    setPendingThumbnail({
+      file,
+      previewUrl,
+      width: size.width,
+      height: size.height,
+    });
+  }
+
+  function cancelPendingThumbnail() {
+    if (pendingThumbnail?.previewUrl) {
+      URL.revokeObjectURL(pendingThumbnail.previewUrl);
+    }
+
+    setPendingThumbnail(null);
+  }
+
+  async function handleConfirmUploadThumbnail() {
+    if (!pendingThumbnail) return;
 
     try {
       setUploadingThumbnail(true);
@@ -182,11 +291,20 @@ export default function InstructorCourseEditPage() {
         });
 
       const signature = unwrapData<UploadSignatureResponse>(signatureResponse);
-      const cloudinaryResult = await uploadImageToCloudinary(file, signature);
+      const cloudinaryResult = await uploadImageToCloudinary(
+        pendingThumbnail.file,
+        signature
+      );
 
       setThumbnailUrl(cloudinaryResult.secure_url);
+
+      if (pendingThumbnail.previewUrl) {
+        URL.revokeObjectURL(pendingThumbnail.previewUrl);
+      }
+
+      setPendingThumbnail(null);
       setSuccessMessage(
-        "Thumbnail uploaded. Click Save Course to update the course."
+        "Thumbnail uploaded. Click Save Course to store it in our system."
       );
     } catch (err: any) {
       setError(
@@ -288,6 +406,12 @@ export default function InstructorCourseEditPage() {
 
   useEffect(() => {
     fetchCourse();
+
+    return () => {
+      if (pendingThumbnail?.previewUrl) {
+        URL.revokeObjectURL(pendingThumbnail.previewUrl);
+      }
+    };
   }, [courseId]);
 
   return (
@@ -322,7 +446,9 @@ export default function InstructorCourseEditPage() {
           <Button
             type="button"
             variant="outline"
-            onClick={() => router.push(`/instructor/courses/${courseId}/curriculum`)}
+            onClick={() =>
+              router.push(`/instructor/courses/${courseId}/curriculum`)
+            }
           >
             Manage Curriculum
           </Button>
@@ -365,7 +491,7 @@ export default function InstructorCourseEditPage() {
       {loading ? (
         <p className="text-sm text-zinc-500">Loading course...</p>
       ) : (
-        <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+        <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
           <Card>
             <CardHeader>
               <CardTitle>Course Information</CardTitle>
@@ -525,37 +651,42 @@ export default function InstructorCourseEditPage() {
               <CardHeader>
                 <CardTitle>Course Thumbnail</CardTitle>
                 <CardDescription>
-                  Upload the main image shown on course cards and detail page.
+                  Recommended size: 1280x720px, 16:9 ratio, under 5MB.
                 </CardDescription>
               </CardHeader>
 
               <CardContent>
                 <div className="space-y-4">
-                  {thumbnailUrl ? (
-                    <img
-                      src={thumbnailUrl}
-                      alt={title || "Course thumbnail"}
-                      className="h-48 w-full rounded-lg object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-48 items-center justify-center rounded-lg bg-zinc-100 text-sm text-zinc-400">
-                      No thumbnail
-                    </div>
-                  )}
+                  <div className="overflow-hidden rounded-lg border bg-zinc-100">
+                    {thumbnailUrl ? (
+                      <img
+                        src={thumbnailUrl}
+                        alt={title || "Course thumbnail"}
+                        className="aspect-video w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex aspect-video items-center justify-center text-sm text-zinc-400">
+                        <div className="text-center">
+                          <ImageIcon className="mx-auto mb-2 h-8 w-8" />
+                          No thumbnail
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
                   <label className="flex cursor-pointer items-center justify-center rounded-md border bg-background px-3 py-2 text-sm font-medium hover:bg-muted">
                     <FileUp className="mr-2 h-4 w-4" />
-                    {uploadingThumbnail ? "Uploading..." : "Upload Thumbnail"}
+                    Select Thumbnail
                     <input
                       type="file"
-                      accept="image/*"
+                      accept="image/jpeg,image/png,image/webp,image/jpg"
                       className="hidden"
                       disabled={!canEditDraft || uploadingThumbnail}
                       onChange={(event) => {
                         const file = event.target.files?.[0];
 
                         if (file) {
-                          handleUploadThumbnail(file);
+                          handleSelectThumbnail(file);
                         }
 
                         event.target.value = "";
@@ -563,9 +694,21 @@ export default function InstructorCourseEditPage() {
                     />
                   </label>
 
+                  <div className="rounded-lg border bg-zinc-50 p-3 text-xs text-zinc-600">
+                    <p className="font-medium text-zinc-800">
+                      Thumbnail guide
+                    </p>
+                    <ul className="mt-2 list-disc space-y-1 pl-4">
+                      <li>Use 16:9 image for best display.</li>
+                      <li>Recommended: 1280x720px.</li>
+                      <li>Minimum: 800x450px.</li>
+                      <li>Supported: JPG, PNG, WEBP.</li>
+                    </ul>
+                  </div>
+
                   <p className="text-xs text-zinc-500">
-                    After uploading, click Save Course to store the thumbnail
-                    URL in backend.
+                    After confirming upload, click Save Course to store the
+                    thumbnail URL in backend.
                   </p>
                 </div>
               </CardContent>
@@ -575,34 +718,159 @@ export default function InstructorCourseEditPage() {
               <CardHeader>
                 <CardTitle>Course Preview</CardTitle>
                 <CardDescription>
-                  Quick overview of the current course.
+                  This is how your course card roughly appears.
                 </CardDescription>
               </CardHeader>
 
               <CardContent>
-                <div className="space-y-3">
-                  <div>
-                    <h2 className="font-semibold text-zinc-900">
+                <div className="overflow-hidden rounded-2xl border bg-white">
+                  <div className="overflow-hidden bg-zinc-100">
+                    {thumbnailUrl ? (
+                      <img
+                        src={thumbnailUrl}
+                        alt={title || "Course preview"}
+                        className="aspect-video w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex aspect-video items-center justify-center text-sm text-zinc-400">
+                        No image
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="p-4">
+                    <div className="mb-2 flex flex-wrap gap-2">
+                      {level && <Badge>{level}</Badge>}
+                      {language && <Badge variant="secondary">{language}</Badge>}
+                    </div>
+
+                    <h2 className="line-clamp-2 font-semibold text-zinc-900">
                       {title || course?.title || "Untitled course"}
                     </h2>
-                    <p className="mt-1 text-sm text-zinc-500">
+
+                    <p className="mt-2 line-clamp-2 text-sm text-zinc-500">
                       {shortDescription ||
                         course?.shortDescription ||
                         "No short description."}
                     </p>
-                  </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    {level && <Badge>{level}</Badge>}
-                    {course?.status && (
-                      <Badge variant="outline">{course.status}</Badge>
-                    )}
-                    {language && <Badge variant="secondary">{language}</Badge>}
+                    <p className="mt-4 text-sm font-semibold text-zinc-900">
+                      {price ? `${Number(price).toLocaleString("vi-VN")} VND` : "Free"}
+                    </p>
                   </div>
                 </div>
               </CardContent>
             </Card>
           </section>
+        </div>
+      )}
+
+      {pendingThumbnail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl">
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-zinc-900">
+                  Preview thumbnail
+                </h2>
+                <p className="mt-1 text-sm text-zinc-500">
+                  Check how your thumbnail looks before uploading.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={cancelPendingThumbnail}
+                disabled={uploadingThumbnail}
+                className="rounded-md p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="rounded-xl border bg-zinc-50 p-4">
+              <div className="overflow-hidden rounded-lg border bg-white">
+                <img
+                  src={pendingThumbnail.previewUrl}
+                  alt={pendingThumbnail.file.name}
+                  className="aspect-video w-full object-cover"
+                />
+              </div>
+
+              <p className="mt-2 text-xs text-zinc-500">
+                This preview uses a 16:9 crop frame, same as the course card.
+              </p>
+
+              <div className="mt-4 grid gap-3 text-sm text-zinc-600 sm:grid-cols-2">
+                <div>
+                  <p className="font-medium text-zinc-900">File</p>
+                  <p className="break-all">{pendingThumbnail.file.name}</p>
+                </div>
+
+                <div>
+                  <p className="font-medium text-zinc-900">Size</p>
+                  <p>{formatFileSize(pendingThumbnail.file.size)}</p>
+                </div>
+
+                <div>
+                  <p className="font-medium text-zinc-900">Image dimension</p>
+                  <p>
+                    {pendingThumbnail.width && pendingThumbnail.height
+                      ? `${pendingThumbnail.width} x ${pendingThumbnail.height}px`
+                      : "Unknown"}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="font-medium text-zinc-900">Aspect ratio</p>
+                  <p>
+                    {getAspectRatioText(
+                      pendingThumbnail.width,
+                      pendingThumbnail.height
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              {!thumbnailIsGoodSize && (
+                <div className="mt-4 rounded-lg border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-800">
+                  Recommended thumbnail size is at least 800x450px. Best size is
+                  1280x720px.
+                </div>
+              )}
+
+              {thumbnailIsGoodSize && (
+                <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                  This image size is suitable for a course thumbnail.
+                </div>
+              )}
+            </div>
+
+            {uploadingThumbnail && (
+              <p className="mt-3 text-sm text-blue-600">
+                Uploading thumbnail...
+              </p>
+            )}
+
+            <div className="mt-6 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={cancelPendingThumbnail}
+                disabled={uploadingThumbnail}
+              >
+                Cancel
+              </Button>
+
+              <Button
+                type="button"
+                onClick={handleConfirmUploadThumbnail}
+                disabled={uploadingThumbnail}
+              >
+                {uploadingThumbnail ? "Uploading..." : "Confirm Upload"}
+              </Button>
+            </div>
+          </div>
         </div>
       )}
     </main>

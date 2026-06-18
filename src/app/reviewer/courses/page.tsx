@@ -8,42 +8,65 @@ import {
   unwrapList,
 } from "@/services/review.service";
 
-import type { ReviewerReviewTask } from "@/services/review.service";
+type CourseCategorySummary = {
+  id: string;
+  name: string;
+  slug?: string | null;
+};
 
-function getReviewId(task: ReviewerReviewTask) {
-  return task.reviewId || task.id;
-}
+type CourseInstructorSummary = {
+  id: string;
+  fullName: string;
+  email?: string | null;
+  avatarUrl?: string | null;
+};
+
+type ReviewCourse = {
+  id: string;
+  title: string;
+  shortDescription?: string | null;
+  description?: string | null;
+  thumbnailUrl?: string | null;
+  level?: string | null;
+  categories?: CourseCategorySummary[];
+  instructors?: CourseInstructorSummary[];
+};
+
+type ReviewerReviewTask = {
+  reviewId: string;
+  reviewStatus: string;
+  reviewNote?: string | null;
+  submittedAt?: string | null;
+  reviewedAt?: string | null;
+  course: ReviewCourse;
+};
 
 function getCourseTitle(task: ReviewerReviewTask) {
-  return task.course?.title || task.title || "Untitled course";
+  return task.course?.title || "Untitled course";
 }
 
 function getCourseDescription(task: ReviewerReviewTask) {
-  return (
-    task.course?.shortDescription ||
-    task.shortDescription ||
-    "No short description."
-  );
+  return task.course?.shortDescription || "No short description.";
 }
 
 function getCourseThumbnail(task: ReviewerReviewTask) {
-  return task.course?.thumbnailUrl || task.thumbnailUrl;
+  return task.course?.thumbnailUrl || "";
 }
 
 function getCourseLevel(task: ReviewerReviewTask) {
-  return task.course?.level || task.level;
+  return task.course?.level || "";
 }
 
 function getCourseCategories(task: ReviewerReviewTask) {
-  return task.course?.categories || task.categories || [];
+  return task.course?.categories || [];
 }
 
 function getCourseInstructors(task: ReviewerReviewTask) {
-  return task.course?.instructors || task.instructors || [];
+  return task.course?.instructors || [];
 }
 
 function getTaskStatus(task: ReviewerReviewTask) {
-  return task.reviewStatus || task.status || "PENDING";
+  return task.reviewStatus || "PENDING";
 }
 
 export default function ReviewerCoursesPage() {
@@ -76,7 +99,9 @@ export default function ReviewerCoursesPage() {
         limit: 30,
       });
 
-      setTasks(unwrapList<ReviewerReviewTask>(response));
+      const list = unwrapList<ReviewerReviewTask>(response);
+
+      setTasks(Array.isArray(list) ? list : []);
     } catch (err: any) {
       setError(err?.response?.data?.message || "Failed to load review tasks.");
     } finally {
@@ -169,7 +194,7 @@ export default function ReviewerCoursesPage() {
       ) : (
         <div className="grid gap-5">
           {filteredTasks.map((task) => {
-            const reviewId = getReviewId(task);
+            const reviewId = task.reviewId;
             const title = getCourseTitle(task);
             const description = getCourseDescription(task);
             const thumbnailUrl = getCourseThumbnail(task);
@@ -180,7 +205,7 @@ export default function ReviewerCoursesPage() {
 
             return (
               <div
-                key={reviewId}
+                key={reviewId || task.course.id}
                 className="overflow-hidden rounded-2xl border bg-white shadow-sm"
               >
                 <div className="grid gap-4 p-5 md:grid-cols-[180px_1fr]">
@@ -216,12 +241,22 @@ export default function ReviewerCoursesPage() {
                         </p>
                       </div>
 
-                      <Link
-                        href={`/reviewer/courses/${reviewId}`}
-                        className="shrink-0 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-700"
-                      >
-                        Open Workspace
-                      </Link>
+                      {reviewId ? (
+                        <Link
+                          href={`/reviewer/courses/${reviewId}`}
+                          className="shrink-0 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-700"
+                        >
+                          Open Workspace
+                        </Link>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled
+                          className="shrink-0 rounded-lg bg-zinc-300 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed"
+                        >
+                          Missing Review ID
+                        </button>
+                      )}
                     </div>
 
                     <div className="mt-4 flex flex-wrap gap-2">
@@ -255,10 +290,10 @@ export default function ReviewerCoursesPage() {
                         <p>Instructor: Not available</p>
                       )}
 
-                      {task.claimedAt && (
+                      {task.submittedAt && (
                         <p className="mt-1">
-                          Claimed at:{" "}
-                          {new Date(task.claimedAt).toLocaleString()}
+                          Submitted at:{" "}
+                          {new Date(task.submittedAt).toLocaleString()}
                         </p>
                       )}
                     </div>
