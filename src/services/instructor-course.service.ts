@@ -2,7 +2,7 @@ import api from "@/lib/api";
 
 export type CourseLevel = "BEGINNER" | "INTERMEDIATE" | "ADVANCED";
 
-export type MediaType = "IMAGE" | "VIDEO" | "RAW";
+export type MediaType = "IMAGE" | "VIDEO" | "PDF" | "DOCUMENT" | "FILE" | "RAW";
 
 export type InstructorCourse = {
   id: string;
