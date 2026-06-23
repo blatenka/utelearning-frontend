@@ -22,6 +22,13 @@ import {
 import type { PublicCourseDetail } from "@/services/public-course.service";
 import { useAuth } from "@/providers/AuthProvider";
 
+import {
+  enrollmentService,
+  unwrapData as unwrapEnrollmentData,
+} from "@/services/enrollment.service";
+
+import type { EnrollmentStatusResponse } from "@/services/enrollment.service";
+
 function formatPrice(price?: number | null) {
   if (price === null || price === undefined || price === 0) {
     return "Free";
@@ -48,13 +55,20 @@ function formatDuration(minutes?: number | null) {
 export default function PublicCourseDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
 
   const slug = String(params.slug);
-
+  const isLearner = user?.role === "LEARNER";
   const [course, setCourse] = useState<PublicCourseDetail | null>(null);
+  const [enrollmentStatus, setEnrollmentStatus] =
+    useState<EnrollmentStatusResponse | null>(null);
+
   const [loading, setLoading] = useState(false);
+  const [checkingEnrollment, setCheckingEnrollment] = useState(false);
+  const [enrolling, setEnrolling] = useState(false);
+
   const [error, setError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
 
   const sections = useMemo(() => {
     return course?.sections ?? [];
@@ -66,6 +80,14 @@ export default function PublicCourseDetailPage() {
     }, 0);
   }, [sections]);
 
+  const enrollButtonText = useMemo(() => {
+    if (!user) return "Login to Enroll";
+    if (checkingEnrollment) return "Checking...";
+    if (enrolling) return "Enrolling...";
+    if (enrollmentStatus?.enrolled) return "Start Learning";
+    return "Enroll Now";
+  }, [user, checkingEnrollment, enrolling, enrollmentStatus?.enrolled]);
+
   async function fetchCourseDetail() {
     try {
       setLoading(true);
@@ -76,15 +98,39 @@ export default function PublicCourseDetailPage() {
 
       setCourse(payload);
     } catch (err: any) {
-      setError(
-        err?.response?.data?.message || "Failed to load course detail."
-      );
+      setError(err?.response?.data?.message || "Failed to load course detail.");
     } finally {
       setLoading(false);
     }
   }
 
-function handleEnrollClick() {
+  async function fetchEnrollmentStatus(courseId: string) {
+    if (!user) {
+      setEnrollmentStatus(null);
+      return;
+    }
+
+    try {
+      setCheckingEnrollment(true);
+
+      const response = await enrollmentService.getEnrollmentStatus(courseId);
+      const payload =
+        unwrapEnrollmentData<EnrollmentStatusResponse>(response);
+
+      setEnrollmentStatus(payload);
+    } catch {
+      setEnrollmentStatus({
+        enrolled: false,
+        enrollment: null,
+      });
+    } finally {
+      setCheckingEnrollment(false);
+    }
+  }
+
+  async function handleEnrollClick() {
+  if (!course) return;
+
   const currentCourseUrl = `/courses/${slug}`;
 
   if (!user) {
@@ -94,12 +140,61 @@ function handleEnrollClick() {
     return;
   }
 
-    router.push(`/enroll/${slug}`);
+  if (!isLearner) {
+    setError("Only learner accounts can enroll in courses.");
+    return;
+  }
+
+  if (enrollmentStatus?.enrolled) {
+    router.push(`/learning/courses/${course.id}`);
+    return;
+  }
+
+  const isFreeCourse =
+    course.price === null || course.price === undefined || Number(course.price) <= 0;
+
+  if (!isFreeCourse) {
+    router.push(
+      `/checkout/${course.id}?slug=${encodeURIComponent(slug)}`
+    );
+    return;
+  }
+
+  try {
+    setEnrolling(true);
+    setError("");
+    setSuccessMessage("");
+
+    const response = await enrollmentService.enrollCourse(course.id);
+    const enrollment = unwrapEnrollmentData<any>(response);
+
+    setEnrollmentStatus({
+      enrolled: true,
+      enrollment,
+    });
+
+    setSuccessMessage("Enrollment successful. Redirecting to learning page...");
+    router.push(`/learning/courses/${course.id}`);
+  } catch (err: any) {
+    setError(
+      err?.response?.data?.message ||
+        err?.message ||
+        "Failed to enroll this course."
+    );
+  } finally {
+    setEnrolling(false);
+  }
 }
 
   useEffect(() => {
     fetchCourseDetail();
   }, [slug]);
+
+  useEffect(() => {
+    if (!authLoading && course?.id) {
+      fetchEnrollmentStatus(course.id);
+    }
+  }, [authLoading, user, course?.id]);
 
   return (
     <main className="min-h-screen bg-zinc-50">
@@ -117,6 +212,12 @@ function handleEnrollClick() {
           {error && (
             <div className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
               {Array.isArray(error) ? error.join(", ") : error}
+            </div>
+          )}
+
+          {successMessage && (
+            <div className="mb-5 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+              {successMessage}
             </div>
           )}
 
@@ -149,6 +250,12 @@ function handleEnrollClick() {
                   <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">
                     {course.level}
                   </span>
+
+                  {enrollmentStatus?.enrolled && (
+                    <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+                      Enrolled
+                    </span>
+                  )}
                 </div>
 
                 <h1 className="text-4xl font-bold tracking-tight text-zinc-950">
@@ -236,17 +343,21 @@ function handleEnrollClick() {
                     <button
                       type="button"
                       onClick={handleEnrollClick}
-                      className="mt-5 w-full rounded-xl bg-zinc-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-zinc-700"
+                      disabled={checkingEnrollment || enrolling}
+                      className="mt-5 w-full rounded-xl bg-zinc-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-70"
                     >
-                      Enroll Now
+                      {enrollButtonText}
                     </button>
 
-                    <button
-                      type="button"
-                      className="mt-3 w-full rounded-xl border border-zinc-300 bg-white px-4 py-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50"
-                    >
-                      Add to Wishlist
-                    </button>
+                    {user && enrollmentStatus?.enrolled && (
+                      <button
+                        type="button"
+                        onClick={() => router.push("/my-learning")}
+                        className="mt-3 w-full rounded-xl border border-zinc-300 bg-white px-4 py-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50"
+                      >
+                        View My Learning
+                      </button>
+                    )}
 
                     <div className="mt-5 space-y-3 text-sm text-zinc-600">
                       <div className="flex items-center gap-2">
@@ -338,7 +449,7 @@ function handleEnrollClick() {
                 </div>
 
                 <p className="text-sm text-zinc-500">
-                  Preview only. Lesson media unlocks after enrollment.
+                  Lesson media unlocks after enrollment.
                 </p>
               </div>
 
@@ -374,8 +485,12 @@ function handleEnrollClick() {
                                 </span>
                               </div>
 
-                              {lesson.isPreview ? (
+                              {enrollmentStatus?.enrolled ? (
                                 <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
+                                  Unlocked
+                                </span>
+                              ) : lesson.isPreview ? (
+                                <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">
                                   Preview
                                 </span>
                               ) : (
@@ -443,4 +558,4 @@ function handleEnrollClick() {
       )}
     </main>
   );
-}   
+}

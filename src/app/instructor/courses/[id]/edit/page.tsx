@@ -226,8 +226,8 @@ export default function InstructorCourseEditPage() {
     } catch (err: any) {
       setError(
         err?.response?.data?.message ||
-          err?.message ||
-          "Failed to load course edit page."
+        err?.message ||
+        "Failed to load course edit page."
       );
     } finally {
       setLoading(false);
@@ -309,8 +309,8 @@ export default function InstructorCourseEditPage() {
     } catch (err: any) {
       setError(
         err?.response?.data?.message ||
-          err?.message ||
-          "Failed to upload thumbnail."
+        err?.message ||
+        "Failed to upload thumbnail."
       );
     } finally {
       setUploadingThumbnail(false);
@@ -452,7 +452,13 @@ export default function InstructorCourseEditPage() {
           >
             Manage Curriculum
           </Button>
-
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => router.push(`/instructor/courses/${courseId}/preview`)}
+          >
+            Preview Course
+          </Button>
           <Button
             type="button"
             variant="outline"

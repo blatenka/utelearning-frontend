@@ -1,18 +1,20 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/providers/AuthProvider";
 
 export default function UserMenu({ user }: { user: any }) {
   const router = useRouter();
   const { logout } = useAuth();
+
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const isAdmin = user?.role === "ADMIN";
   const isInstructor = user?.role === "INSTRUCTOR";
   const isReviewer = user?.role === "REVIEWER";
+  const isLearner = user?.role === "LEARNER";
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -30,14 +32,21 @@ export default function UserMenu({ user }: { user: any }) {
     };
   }, [open]);
 
+  function navigateTo(path: string) {
+    setOpen(false);
+    router.push(path);
+  }
+
   const handleLogout = async () => {
     setOpen(false);
     await logout();
+    router.push("/");
   };
 
   return (
     <div className="relative inline-block text-left" ref={menuRef}>
       <button
+        type="button"
         onClick={() => setOpen((prev) => !prev)}
         className="flex cursor-pointer items-center rounded-full border border-zinc-200 bg-white p-1 shadow-sm transition-all hover:bg-zinc-50"
         title={user.fullName}
@@ -56,7 +65,7 @@ export default function UserMenu({ user }: { user: any }) {
       </button>
 
       <div
-        className={`absolute right-0 z-20 mt-2 w-60 origin-top-right rounded-xl border border-zinc-200/80 bg-white/95 p-1.5 shadow-xl backdrop-blur-md transition-all duration-200 ${
+        className={`absolute right-0 z-20 mt-2 w-64 origin-top-right rounded-xl border border-zinc-200/80 bg-white/95 p-1.5 shadow-xl backdrop-blur-md transition-all duration-200 ${
           open
             ? "translate-y-0 scale-100 opacity-100"
             : "pointer-events-none -translate-y-1 scale-95 opacity-0"
@@ -75,13 +84,20 @@ export default function UserMenu({ user }: { user: any }) {
         <button
           type="button"
           className="block w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-zinc-100"
-          onClick={() => {
-            setOpen(false);
-            router.push("/profile");
-          }}
+          onClick={() => navigateTo("/profile")}
         >
           Profile
         </button>
+
+        {(isLearner || user) && (
+          <button
+            type="button"
+            className="block w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm text-indigo-600 transition-colors hover:bg-zinc-100"
+            onClick={() => navigateTo("/my-learning")}
+          >
+            My Learning
+          </button>
+        )}
 
         {isAdmin && (
           <>
@@ -94,10 +110,7 @@ export default function UserMenu({ user }: { user: any }) {
             <button
               type="button"
               className="block w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm text-blue-600 transition-colors hover:bg-zinc-100"
-              onClick={() => {
-                setOpen(false);
-                router.push("/admin/users");
-              }}
+              onClick={() => navigateTo("/admin/users")}
             >
               User Management
             </button>
@@ -105,10 +118,7 @@ export default function UserMenu({ user }: { user: any }) {
             <button
               type="button"
               className="block w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm text-blue-600 transition-colors hover:bg-zinc-100"
-              onClick={() => {
-                setOpen(false);
-                router.push("/admin/categories");
-              }}
+              onClick={() => navigateTo("/admin/categories")}
             >
               Categories Management
             </button>
@@ -116,10 +126,7 @@ export default function UserMenu({ user }: { user: any }) {
             <button
               type="button"
               className="block w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm text-blue-600 transition-colors hover:bg-zinc-100"
-              onClick={() => {
-                setOpen(false);
-                router.push("/admin/reviewer-categories");
-              }}
+              onClick={() => navigateTo("/admin/reviewer-categories")}
             >
               Reviewer Categories
             </button>
@@ -137,10 +144,7 @@ export default function UserMenu({ user }: { user: any }) {
             <button
               type="button"
               className="block w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm text-emerald-600 transition-colors hover:bg-zinc-100"
-              onClick={() => {
-                setOpen(false);
-                router.push("/instructor");
-              }}
+              onClick={() => navigateTo("/instructor")}
             >
               Instructor Dashboard
             </button>
@@ -148,10 +152,7 @@ export default function UserMenu({ user }: { user: any }) {
             <button
               type="button"
               className="block w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm text-emerald-600 transition-colors hover:bg-zinc-100"
-              onClick={() => {
-                setOpen(false);
-                router.push("/instructor/courses");
-              }}
+              onClick={() => navigateTo("/instructor/courses")}
             >
               My Courses
             </button>
@@ -159,10 +160,7 @@ export default function UserMenu({ user }: { user: any }) {
             <button
               type="button"
               className="block w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm text-emerald-600 transition-colors hover:bg-zinc-100"
-              onClick={() => {
-                setOpen(false);
-                router.push("/instructor/courses/new");
-              }}
+              onClick={() => navigateTo("/instructor/courses/new")}
             >
               Create Course
             </button>
@@ -180,10 +178,7 @@ export default function UserMenu({ user }: { user: any }) {
             <button
               type="button"
               className="block w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm text-purple-600 transition-colors hover:bg-zinc-100"
-              onClick={() => {
-                setOpen(false);
-                router.push("/reviewer");
-              }}
+              onClick={() => navigateTo("/reviewer")}
             >
               Reviewer Dashboard
             </button>
@@ -191,10 +186,7 @@ export default function UserMenu({ user }: { user: any }) {
             <button
               type="button"
               className="block w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm text-purple-600 transition-colors hover:bg-zinc-100"
-              onClick={() => {
-                setOpen(false);
-                router.push("/reviewer/courses/available");
-              }}
+              onClick={() => navigateTo("/reviewer/courses/available")}
             >
               Available Courses
             </button>
@@ -202,10 +194,7 @@ export default function UserMenu({ user }: { user: any }) {
             <button
               type="button"
               className="block w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm text-purple-600 transition-colors hover:bg-zinc-100"
-              onClick={() => {
-                setOpen(false);
-                router.push("/reviewer/courses");
-              }}
+              onClick={() => navigateTo("/reviewer/courses")}
             >
               My Review Tasks
             </button>

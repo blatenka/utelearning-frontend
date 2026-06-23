@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -8,6 +9,7 @@ import {
   Edit,
   FileUp,
   GripVertical,
+  LinkIcon,
   PlusCircle,
   Save,
   Trash2,
@@ -72,6 +74,20 @@ type PendingUpload = {
   mediaType: MediaType;
 } | null;
 
+type LessonMediaLinkForm = {
+  url: string;
+  type: MediaType;
+  filename: string;
+};
+
+function getDefaultMediaLinkForm(): LessonMediaLinkForm {
+  return {
+    url: "",
+    type: "VIDEO",
+    filename: "",
+  };
+}
+
 function getCloudinaryResourceType(file: File): "image" | "video" | "raw" {
   if (file.type.startsWith("image/")) return "image";
   if (file.type.startsWith("video/")) return "video";
@@ -82,6 +98,52 @@ function getMediaType(file: File): MediaType {
   if (file.type.startsWith("image/")) return "IMAGE";
   if (file.type.startsWith("video/")) return "VIDEO";
   return "RAW";
+}
+
+function inferMediaTypeFromUrl(url: string): MediaType {
+  const cleanUrl = url.split("?")[0].toLowerCase();
+
+  if (
+    cleanUrl.endsWith(".jpg") ||
+    cleanUrl.endsWith(".jpeg") ||
+    cleanUrl.endsWith(".png") ||
+    cleanUrl.endsWith(".webp") ||
+    cleanUrl.endsWith(".gif")
+  ) {
+    return "IMAGE";
+  }
+
+  if (
+    cleanUrl.endsWith(".mp4") ||
+    cleanUrl.endsWith(".webm") ||
+    cleanUrl.endsWith(".mov") ||
+    cleanUrl.endsWith(".mkv")
+  ) {
+    return "VIDEO";
+  }
+
+  return "RAW";
+}
+
+function getFilenameFromUrl(url: string) {
+  try {
+    const parsedUrl = new URL(url);
+    const pathname = parsedUrl.pathname;
+    const filename = pathname.split("/").filter(Boolean).pop();
+
+    return filename || "External resource";
+  } catch {
+    return "External resource";
+  }
+}
+
+function isValidUrl(value: string) {
+  try {
+    new URL(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function formatFileSize(size: number) {
@@ -132,7 +194,7 @@ function SortableSectionCard({
   children,
 }: {
   section: Section;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   const {
     attributes,
@@ -204,6 +266,13 @@ export default function CourseCurriculumPage() {
   const [uploading, setUploading] = useState<UploadingState>(null);
   const [pendingUpload, setPendingUpload] = useState<PendingUpload>(null);
 
+  const [mediaLinkForms, setMediaLinkForms] = useState<
+    Record<string, LessonMediaLinkForm>
+  >({});
+  const [savingMediaLinkLessonId, setSavingMediaLinkLessonId] = useState<
+    string | null
+  >(null);
+
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 
@@ -230,6 +299,23 @@ export default function CourseCurriculumPage() {
     return !status || status === "DRAFT" || status === "NEEDS_CHANGES";
   })();
 
+  function getMediaLinkForm(lessonId: string): LessonMediaLinkForm {
+    return mediaLinkForms[lessonId] ?? getDefaultMediaLinkForm();
+  }
+
+  function updateMediaLinkForm(
+    lessonId: string,
+    patch: Partial<LessonMediaLinkForm>
+  ) {
+    setMediaLinkForms((prev) => ({
+      ...prev,
+      [lessonId]: {
+        ...(prev[lessonId] ?? getDefaultMediaLinkForm()),
+        ...patch,
+      },
+    }));
+  }
+
   async function fetchCurrentCourse() {
     try {
       setCourseLoading(true);
@@ -250,9 +336,12 @@ export default function CourseCurriculumPage() {
     }
   }
 
-  async function fetchSectionsAndLessons() {
+  async function fetchSectionsAndLessons(silent = false) {
     try {
-      setLoading(true);
+      if (!silent) {
+        setLoading(true);
+      }
+
       setError("");
 
       const sectionResponse = await instructorCourseService.getSections(
@@ -296,7 +385,9 @@ export default function CourseCurriculumPage() {
     } catch (err: any) {
       setError(err?.response?.data?.message || "Failed to load curriculum.");
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   }
 
@@ -316,7 +407,7 @@ export default function CourseCurriculumPage() {
       setSectionTitle("");
       setSectionDescription("");
       setSuccessMessage("Section created successfully.");
-      await fetchSectionsAndLessons();
+      await fetchSectionsAndLessons(true);
     } catch (err: any) {
       setError(err?.response?.data?.message || "Failed to create section.");
     } finally {
@@ -342,7 +433,7 @@ export default function CourseCurriculumPage() {
 
       setEditingSectionId(null);
       setSuccessMessage("Section updated successfully.");
-      await fetchSectionsAndLessons();
+      await fetchSectionsAndLessons(true);
     } catch (err: any) {
       setError(err?.response?.data?.message || "Failed to update section.");
     }
@@ -362,7 +453,7 @@ export default function CourseCurriculumPage() {
       await instructorCourseService.deleteSection(courseId, sectionId);
 
       setSuccessMessage("Section deleted successfully.");
-      await fetchSectionsAndLessons();
+      await fetchSectionsAndLessons(true);
     } catch (err: any) {
       setError(err?.response?.data?.message || "Failed to delete section.");
     }
@@ -379,7 +470,7 @@ export default function CourseCurriculumPage() {
         !section.isActive
       );
 
-      await fetchSectionsAndLessons();
+      await fetchSectionsAndLessons(true);
     } catch (err: any) {
       setError(err?.response?.data?.message || "Failed to update section.");
     }
@@ -403,7 +494,7 @@ export default function CourseCurriculumPage() {
       setLessonDescription("");
       setLessonFormSectionId(null);
       setSuccessMessage("Lesson created successfully.");
-      await fetchSectionsAndLessons();
+      await fetchSectionsAndLessons(true);
     } catch (err: any) {
       setError(err?.response?.data?.message || "Failed to create lesson.");
     }
@@ -427,7 +518,7 @@ export default function CourseCurriculumPage() {
 
       setEditingLessonId(null);
       setSuccessMessage("Lesson updated successfully.");
-      await fetchSectionsAndLessons();
+      await fetchSectionsAndLessons(true);
     } catch (err: any) {
       setError(err?.response?.data?.message || "Failed to update lesson.");
     }
@@ -447,7 +538,7 @@ export default function CourseCurriculumPage() {
       await instructorCourseService.deleteLesson(courseId, sectionId, lessonId);
 
       setSuccessMessage("Lesson deleted successfully.");
-      await fetchSectionsAndLessons();
+      await fetchSectionsAndLessons(true);
     } catch (err: any) {
       setError(err?.response?.data?.message || "Failed to delete lesson.");
     }
@@ -462,7 +553,7 @@ export default function CourseCurriculumPage() {
         isActive: !lesson.isActive,
       });
 
-      await fetchSectionsAndLessons();
+      await fetchSectionsAndLessons(true);
     } catch (err: any) {
       setError(err?.response?.data?.message || "Failed to update lesson.");
     }
@@ -488,10 +579,10 @@ export default function CourseCurriculumPage() {
         reorderedSections.map((section) => section.id)
       );
 
-      await fetchSectionsAndLessons();
+      await fetchSectionsAndLessons(true);
     } catch (err: any) {
       setError(err?.response?.data?.message || "Failed to reorder sections.");
-      await fetchSectionsAndLessons();
+      await fetchSectionsAndLessons(true);
     }
   }
 
@@ -528,10 +619,70 @@ export default function CourseCurriculumPage() {
         copiedLessons.map((lesson) => lesson.id)
       );
 
-      await fetchSectionsAndLessons();
+      await fetchSectionsAndLessons(true);
     } catch (err: any) {
       setError(err?.response?.data?.message || "Failed to reorder lessons.");
-      await fetchSectionsAndLessons();
+      await fetchSectionsAndLessons(true);
+    }
+  }
+
+  async function handleAttachLessonMediaUrl(sectionId: string, lesson: Lesson) {
+    const form = getMediaLinkForm(lesson.id);
+    const url = form.url.trim();
+
+    if (!url) {
+      setError("Media URL is required.");
+      return;
+    }
+
+    if (!isValidUrl(url)) {
+      setError("Media URL is invalid.");
+      return;
+    }
+
+    try {
+      setSavingMediaLinkLessonId(lesson.id);
+      setError("");
+      setSuccessMessage("");
+
+      const type = form.type || inferMediaTypeFromUrl(url);
+      const filename = form.filename.trim() || getFilenameFromUrl(url);
+
+      const mediaResponse = await instructorCourseService.createLessonFile(
+        courseId,
+        sectionId,
+        lesson.id,
+        {
+          cloudinaryPublicId: null,
+          url,
+          type,
+          filename,
+          mimeType: null,
+          sizeInBytes: null,
+        }
+      );
+
+      const savedMedia = unwrapData<LessonFileMedia>(mediaResponse);
+
+      setUploadedFiles((prev) => ({
+        ...prev,
+        [lesson.id]: [...(prev[lesson.id] ?? []), savedMedia],
+      }));
+
+      setMediaLinkForms((prev) => ({
+        ...prev,
+        [lesson.id]: getDefaultMediaLinkForm(),
+      }));
+
+      setSuccessMessage("Lesson media link added successfully.");
+    } catch (err: any) {
+      setError(
+        err?.response?.data?.message ||
+          err?.message ||
+          "Failed to add lesson media link."
+      );
+    } finally {
+      setSavingMediaLinkLessonId(null);
     }
   }
 
@@ -645,13 +796,15 @@ export default function CourseCurriculumPage() {
   useEffect(() => {
     fetchCurrentCourse();
     fetchSectionsAndLessons();
+  }, [courseId]);
 
+  useEffect(() => {
     return () => {
       if (pendingUpload?.previewUrl) {
         URL.revokeObjectURL(pendingUpload.previewUrl);
       }
     };
-  }, [courseId]);
+  }, [pendingUpload?.previewUrl]);
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-10">
@@ -790,13 +943,18 @@ export default function CourseCurriculumPage() {
               disabled={!canEditDraft}
             />
 
-            <Textarea
-              value={sectionDescription}
-              onChange={(event) => setSectionDescription(event.target.value)}
-              placeholder="Section description"
-              maxLength={1000}
-              disabled={!canEditDraft}
-            />
+            <div>
+              <Textarea
+                value={sectionDescription}
+                onChange={(event) => setSectionDescription(event.target.value)}
+                placeholder="Section description"
+                maxLength={255}
+                disabled={!canEditDraft}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                {sectionDescription.length}/255 characters
+              </p>
+            </div>
 
             <Button type="submit" disabled={creatingSection || !canEditDraft}>
               <PlusCircle className="mr-2 h-4 w-4" />
@@ -839,19 +997,27 @@ export default function CourseCurriculumPage() {
                             setEditSectionTitle(event.target.value)
                           }
                           disabled={!canEditDraft}
+                          maxLength={255}
                         />
 
-                        <Textarea
-                          value={editSectionDescription}
-                          onChange={(event) =>
-                            setEditSectionDescription(event.target.value)
-                          }
-                          disabled={!canEditDraft}
-                        />
+                        <div>
+                          <Textarea
+                            value={editSectionDescription}
+                            onChange={(event) =>
+                              setEditSectionDescription(event.target.value)
+                            }
+                            disabled={!canEditDraft}
+                            maxLength={255}
+                          />
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {editSectionDescription.length}/255 characters
+                          </p>
+                        </div>
 
                         <div className="flex gap-2">
                           <Button
                             size="sm"
+                            type="button"
                             onClick={() => handleUpdateSection(section.id)}
                             disabled={!canEditDraft}
                           >
@@ -861,6 +1027,7 @@ export default function CourseCurriculumPage() {
 
                           <Button
                             size="sm"
+                            type="button"
                             variant="outline"
                             onClick={() => setEditingSectionId(null)}
                           >
@@ -896,6 +1063,7 @@ export default function CourseCurriculumPage() {
                         <div className="flex flex-wrap gap-2">
                           <Button
                             size="sm"
+                            type="button"
                             variant="outline"
                             onClick={() => handleToggleSection(section)}
                             disabled={!canEditDraft}
@@ -905,6 +1073,7 @@ export default function CourseCurriculumPage() {
 
                           <Button
                             size="sm"
+                            type="button"
                             variant="outline"
                             onClick={() => startEditSection(section)}
                             disabled={!canEditDraft}
@@ -915,6 +1084,7 @@ export default function CourseCurriculumPage() {
 
                           <Button
                             size="sm"
+                            type="button"
                             variant="destructive"
                             onClick={() => handleDeleteSection(section.id)}
                             disabled={!canEditDraft}
@@ -931,242 +1101,354 @@ export default function CourseCurriculumPage() {
                     <div className="space-y-3">
                       {section.lessons?.length ? (
                         section.lessons.map(
-                          (lesson: Lesson, lessonIndex: number) => (
-                            <div
-                              key={lesson.id}
-                              className="rounded-xl border bg-background p-4"
-                            >
-                              {editingLessonId === lesson.id ? (
-                                <div className="space-y-3">
-                                  <Input
-                                    value={editLessonTitle}
-                                    onChange={(event) =>
-                                      setEditLessonTitle(event.target.value)
-                                    }
-                                    disabled={!canEditDraft}
-                                  />
+                          (lesson: Lesson, lessonIndex: number) => {
+                            const mediaForm = getMediaLinkForm(lesson.id);
 
-                                  <Textarea
-                                    value={editLessonDescription}
-                                    onChange={(event) =>
-                                      setEditLessonDescription(
-                                        event.target.value
-                                      )
-                                    }
-                                    disabled={!canEditDraft}
-                                  />
+                            return (
+                              <div
+                                key={lesson.id}
+                                className="rounded-xl border bg-background p-4"
+                              >
+                                {editingLessonId === lesson.id ? (
+                                  <div className="space-y-3">
+                                    <Input
+                                      value={editLessonTitle}
+                                      onChange={(event) =>
+                                        setEditLessonTitle(event.target.value)
+                                      }
+                                      disabled={!canEditDraft}
+                                      maxLength={255}
+                                    />
 
-                                  <div className="flex gap-2">
-                                    <Button
-                                      size="sm"
-                                      onClick={() =>
-                                        handleUpdateLesson(
-                                          section.id,
-                                          lesson.id
+                                    <Textarea
+                                      value={editLessonDescription}
+                                      onChange={(event) =>
+                                        setEditLessonDescription(
+                                          event.target.value
                                         )
                                       }
                                       disabled={!canEditDraft}
-                                    >
-                                      Save
-                                    </Button>
+                                      maxLength={2000}
+                                    />
 
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      onClick={() => setEditingLessonId(null)}
-                                    >
-                                      Cancel
-                                    </Button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="space-y-4">
-                                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                                    <div>
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        <p className="font-medium">
-                                          Lesson {lessonIndex + 1}:{" "}
-                                          {lesson.title}
-                                        </p>
-
-                                        <Badge
-                                          variant={
-                                            lesson.isActive
-                                              ? "default"
-                                              : "secondary"
-                                          }
-                                        >
-                                          {lesson.isActive
-                                            ? "Active"
-                                            : "Inactive"}
-                                        </Badge>
-                                      </div>
-
-                                      {lesson.description && (
-                                        <p className="mt-1 text-sm text-muted-foreground">
-                                          {lesson.description}
-                                        </p>
-                                      )}
-                                    </div>
-
-                                    <div className="flex flex-wrap gap-2">
+                                    <div className="flex gap-2">
                                       <Button
                                         size="sm"
-                                        variant="outline"
-                                        disabled={
-                                          lessonIndex === 0 || !canEditDraft
-                                        }
+                                        type="button"
                                         onClick={() =>
-                                          moveLesson(
-                                            section.id,
-                                            lesson.id,
-                                            "up"
-                                          )
-                                        }
-                                      >
-                                        Up
-                                      </Button>
-
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        disabled={
-                                          lessonIndex ===
-                                            (section.lessons?.length ?? 0) -
-                                              1 || !canEditDraft
-                                        }
-                                        onClick={() =>
-                                          moveLesson(
-                                            section.id,
-                                            lesson.id,
-                                            "down"
-                                          )
-                                        }
-                                      >
-                                        Down
-                                      </Button>
-
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={() =>
-                                          handleToggleLesson(
-                                            section.id,
-                                            lesson
-                                          )
-                                        }
-                                        disabled={!canEditDraft}
-                                      >
-                                        {lesson.isActive
-                                          ? "Disable"
-                                          : "Enable"}
-                                      </Button>
-
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={() => startEditLesson(lesson)}
-                                        disabled={!canEditDraft}
-                                      >
-                                        Edit
-                                      </Button>
-
-                                      <Button
-                                        size="sm"
-                                        variant="destructive"
-                                        onClick={() =>
-                                          handleDeleteLesson(
+                                          handleUpdateLesson(
                                             section.id,
                                             lesson.id
                                           )
                                         }
                                         disabled={!canEditDraft}
                                       >
-                                        Delete
+                                        Save
+                                      </Button>
+
+                                      <Button
+                                        size="sm"
+                                        type="button"
+                                        variant="outline"
+                                        onClick={() => setEditingLessonId(null)}
+                                      >
+                                        Cancel
                                       </Button>
                                     </div>
                                   </div>
-
-                                  <div className="rounded-lg border bg-muted/30 p-3">
-                                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                ) : (
+                                  <div className="space-y-4">
+                                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                                       <div>
-                                        <p className="text-sm font-medium">
-                                          Lesson Media
-                                        </p>
-                                        <p className="text-xs text-muted-foreground">
-                                          Choose a video, image, PDF, or raw file
-                                          and preview before uploading.
-                                        </p>
-                                      </div>
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <p className="font-medium">
+                                            Lesson {lessonIndex + 1}:{" "}
+                                            {lesson.title}
+                                          </p>
 
-                                      <label className="inline-flex cursor-pointer items-center justify-center rounded-md border bg-background px-3 py-2 text-sm font-medium hover:bg-muted">
-                                        <FileUp className="mr-2 h-4 w-4" />
-                                        Select Media
-                                        <input
-                                          type="file"
-                                          className="hidden"
-                                          disabled={
-                                            !canEditDraft ||
-                                            uploading?.lessonId === lesson.id
-                                          }
-                                          onChange={(event) => {
-                                            const file =
-                                              event.target.files?.[0];
-
-                                            if (file) {
-                                              handleSelectLessonFile(
-                                                section.id,
-                                                lesson,
-                                                file
-                                              );
+                                          <Badge
+                                            variant={
+                                              lesson.isActive
+                                                ? "default"
+                                                : "secondary"
                                             }
+                                          >
+                                            {lesson.isActive
+                                              ? "Active"
+                                              : "Inactive"}
+                                          </Badge>
+                                        </div>
 
-                                            event.target.value = "";
-                                          }}
-                                        />
-                                      </label>
-                                    </div>
-
-                                    {uploading?.lessonId === lesson.id && (
-                                      <p className="mt-2 text-xs text-blue-600">
-                                        {uploading.progressText}
-                                      </p>
-                                    )}
-
-                                    {uploadedFiles[lesson.id]?.length ? (
-                                      <div className="mt-3 space-y-2">
-                                        {uploadedFiles[lesson.id].map(
-                                          (file) => (
-                                            <a
-                                              key={file.id}
-                                              href={file.url}
-                                              target="_blank"
-                                              rel="noreferrer"
-                                              className="block rounded-md border bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                                            >
-                                              <span className="font-medium">
-                                                {file.filename ||
-                                                  "Uploaded file"}
-                                              </span>
-                                              <span className="ml-2 text-xs text-zinc-500">
-                                                {file.type}
-                                              </span>
-                                            </a>
-                                          )
+                                        {lesson.description && (
+                                          <p className="mt-1 text-sm text-muted-foreground">
+                                            {lesson.description}
+                                          </p>
                                         )}
                                       </div>
-                                    ) : (
-                                      <p className="mt-2 text-xs text-muted-foreground">
-                                        Newly uploaded files will appear here.
-                                        Existing lesson files need a GET files
-                                        API to load them from backend.
-                                      </p>
-                                    )}
+
+                                      <div className="flex flex-wrap gap-2">
+                                        <Button
+                                          size="sm"
+                                          type="button"
+                                          variant="outline"
+                                          disabled={
+                                            lessonIndex === 0 || !canEditDraft
+                                          }
+                                          onClick={() =>
+                                            moveLesson(
+                                              section.id,
+                                              lesson.id,
+                                              "up"
+                                            )
+                                          }
+                                        >
+                                          Up
+                                        </Button>
+
+                                        <Button
+                                          size="sm"
+                                          type="button"
+                                          variant="outline"
+                                          disabled={
+                                            lessonIndex ===
+                                              (section.lessons?.length ?? 0) -
+                                                1 || !canEditDraft
+                                          }
+                                          onClick={() =>
+                                            moveLesson(
+                                              section.id,
+                                              lesson.id,
+                                              "down"
+                                            )
+                                          }
+                                        >
+                                          Down
+                                        </Button>
+
+                                        <Button
+                                          size="sm"
+                                          type="button"
+                                          variant="outline"
+                                          onClick={() =>
+                                            handleToggleLesson(
+                                              section.id,
+                                              lesson
+                                            )
+                                          }
+                                          disabled={!canEditDraft}
+                                        >
+                                          {lesson.isActive
+                                            ? "Disable"
+                                            : "Enable"}
+                                        </Button>
+
+                                        <Button
+                                          size="sm"
+                                          type="button"
+                                          variant="outline"
+                                          onClick={() =>
+                                            startEditLesson(lesson)
+                                          }
+                                          disabled={!canEditDraft}
+                                        >
+                                          Edit
+                                        </Button>
+
+                                        <Button
+                                          size="sm"
+                                          type="button"
+                                          variant="destructive"
+                                          onClick={() =>
+                                            handleDeleteLesson(
+                                              section.id,
+                                              lesson.id
+                                            )
+                                          }
+                                          disabled={!canEditDraft}
+                                        >
+                                          Delete
+                                        </Button>
+                                      </div>
+                                    </div>
+
+                                    <div className="rounded-lg border bg-muted/30 p-3">
+                                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                        <div>
+                                          <p className="text-sm font-medium">
+                                            Lesson Media
+                                          </p>
+                                          <p className="text-xs text-muted-foreground">
+                                            Paste an external media URL or upload
+                                            your own file.
+                                          </p>
+                                        </div>
+
+                                        <label className="inline-flex cursor-pointer items-center justify-center rounded-md border bg-background px-3 py-2 text-sm font-medium hover:bg-muted">
+                                          <FileUp className="mr-2 h-4 w-4" />
+                                          Upload File
+                                          <input
+                                            type="file"
+                                            className="hidden"
+                                            disabled={
+                                              !canEditDraft ||
+                                              uploading?.lessonId === lesson.id
+                                            }
+                                            onChange={(event) => {
+                                              const file =
+                                                event.target.files?.[0];
+
+                                              if (file) {
+                                                handleSelectLessonFile(
+                                                  section.id,
+                                                  lesson,
+                                                  file
+                                                );
+                                              }
+
+                                              event.target.value = "";
+                                            }}
+                                          />
+                                        </label>
+                                      </div>
+
+                                      <form
+                                        className="mt-4 space-y-3 rounded-lg border bg-white p-3"
+                                        onSubmit={(event) => {
+                                          event.preventDefault();
+                                          handleAttachLessonMediaUrl(
+                                            section.id,
+                                            lesson
+                                          );
+                                        }}
+                                      >
+                                        <div className="grid gap-3 md:grid-cols-[1fr_140px]">
+                                          <Input
+                                            value={mediaForm.url}
+                                            onChange={(event) => {
+                                              const nextUrl =
+                                                event.target.value;
+
+                                              updateMediaLinkForm(lesson.id, {
+                                                url: nextUrl,
+                                                type:
+                                                  inferMediaTypeFromUrl(
+                                                    nextUrl
+                                                  ),
+                                              });
+                                            }}
+                                            placeholder="Paste image, video, PDF, or document URL..."
+                                            disabled={
+                                              !canEditDraft ||
+                                              savingMediaLinkLessonId ===
+                                                lesson.id
+                                            }
+                                          />
+
+                                          <select
+                                            value={mediaForm.type}
+                                            onChange={(event) =>
+                                              updateMediaLinkForm(lesson.id, {
+                                                type: event.target
+                                                  .value as MediaType,
+                                              })
+                                            }
+                                            disabled={
+                                              !canEditDraft ||
+                                              savingMediaLinkLessonId ===
+                                                lesson.id
+                                            }
+                                            className="h-10 rounded-md border bg-background px-3 text-sm"
+                                          >
+                                            <option value="VIDEO">Video</option>
+                                            <option value="IMAGE">Image</option>
+                                            <option value="RAW">
+                                              Document / Raw
+                                            </option>
+                                          </select>
+                                        </div>
+
+                                        <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                                          <Input
+                                            value={mediaForm.filename}
+                                            onChange={(event) =>
+                                              updateMediaLinkForm(lesson.id, {
+                                                filename: event.target.value,
+                                              })
+                                            }
+                                            placeholder="Display name optional"
+                                            disabled={
+                                              !canEditDraft ||
+                                              savingMediaLinkLessonId ===
+                                                lesson.id
+                                            }
+                                          />
+
+                                          <Button
+                                            type="submit"
+                                            size="sm"
+                                            disabled={
+                                              !canEditDraft ||
+                                              savingMediaLinkLessonId ===
+                                                lesson.id ||
+                                              !mediaForm.url.trim()
+                                            }
+                                          >
+                                            <LinkIcon className="mr-2 h-4 w-4" />
+                                            {savingMediaLinkLessonId ===
+                                            lesson.id
+                                              ? "Saving..."
+                                              : "Add Link"}
+                                          </Button>
+                                        </div>
+
+                                        <p className="text-xs text-muted-foreground">
+                                          Best for direct Cloudinary URLs, image
+                                          URLs, video file URLs, or PDF URLs.
+                                        </p>
+                                      </form>
+
+                                      {uploading?.lessonId === lesson.id && (
+                                        <p className="mt-2 text-xs text-blue-600">
+                                          {uploading.progressText}
+                                        </p>
+                                      )}
+
+                                      {uploadedFiles[lesson.id]?.length ? (
+                                        <div className="mt-3 space-y-2">
+                                          {uploadedFiles[lesson.id].map(
+                                            (file) => (
+                                              <a
+                                                key={file.id}
+                                                href={file.url}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="flex items-center justify-between rounded-md border bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                                              >
+                                                <span className="min-w-0 truncate font-medium">
+                                                  {file.filename ||
+                                                    "Lesson media"}
+                                                </span>
+
+                                                <span className="ml-2 shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600">
+                                                  {file.type}
+                                                </span>
+                                              </a>
+                                            )
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <p className="mt-2 text-xs text-muted-foreground">
+                                          Newly added media will appear here.
+                                          Existing lesson files need a GET files
+                                          API to load them from backend.
+                                        </p>
+                                      )}
+                                    </div>
                                   </div>
-                                </div>
-                              )}
-                            </div>
-                          )
+                                )}
+                              </div>
+                            );
+                          }
                         )
                       ) : (
                         <p className="text-sm text-muted-foreground">
@@ -1228,6 +1510,7 @@ export default function CourseCurriculumPage() {
                     ) : (
                       <Button
                         size="sm"
+                        type="button"
                         variant="outline"
                         onClick={() => setLessonFormSectionId(section.id)}
                         disabled={!canEditDraft}

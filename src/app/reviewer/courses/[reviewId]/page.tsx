@@ -40,8 +40,8 @@ export default function ReviewerCourseWorkspacePage() {
     status === "APPROVED"
       ? "Approve Course"
       : status === "REJECTED"
-      ? "Reject Course"
-      : "Request Changes";
+        ? "Reject Course"
+        : "Request Changes";
 
   async function fetchWorkspace() {
     if (!reviewId || reviewId === "undefined") {
@@ -98,11 +98,13 @@ export default function ReviewerCourseWorkspacePage() {
         status === "APPROVED"
           ? "Course approved successfully."
           : status === "REJECTED"
-          ? "Course rejected successfully."
-          : "Change request submitted successfully."
+            ? "Course rejected successfully."
+            : "Change request submitted successfully."
       );
 
-      await fetchWorkspace();
+      setTimeout(() => {
+        router.replace("/reviewer/courses");
+      }, 800);
     } catch (err: any) {
       setError(
         err?.response?.data?.message || "Failed to submit review decision."
@@ -163,6 +165,13 @@ export default function ReviewerCourseWorkspacePage() {
             decision.
           </p>
         </div>
+        <button
+          type="button"
+          onClick={() => router.push(`/reviewer/courses/${reviewId}/preview`)}
+          className="rounded-xl border bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50"
+        >
+          Preview Course
+        </button>
 
         <Link
           href="/reviewer/courses/available"
@@ -481,13 +490,13 @@ export default function ReviewerCourseWorkspacePage() {
 
                                         {typeof file.sizeInBytes ===
                                           "number" && (
-                                          <span className="ml-2 text-xs text-zinc-500">
-                                            {Math.round(
-                                              file.sizeInBytes / 1024
-                                            )}{" "}
-                                            KB
-                                          </span>
-                                        )}
+                                            <span className="ml-2 text-xs text-zinc-500">
+                                              {Math.round(
+                                                file.sizeInBytes / 1024
+                                              )}{" "}
+                                              KB
+                                            </span>
+                                          )}
                                       </a>
                                     ))}
                                   </div>
