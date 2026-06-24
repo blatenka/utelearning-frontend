@@ -36,6 +36,12 @@ const initialForm: FormState = {
   availableUntil: "",
 };
 
+function toDatetimeLocalValue(date: Date) {
+  const offset = date.getTimezoneOffset();
+  const localDate = new Date(date.getTime() - offset * 60 * 1000);
+  return localDate.toISOString().slice(0, 16);
+}
+
 function toIsoOrUndefined(value: string) {
   if (!value) return undefined;
 
@@ -43,6 +49,30 @@ function toIsoOrUndefined(value: string) {
   if (Number.isNaN(date.getTime())) return undefined;
 
   return date.toISOString();
+}
+
+function addDays(date: Date, days: number) {
+  const result = new Date(date);
+  result.setDate(result.getDate() + days);
+  return result;
+}
+
+function setTime(date: Date, hours: number, minutes = 0) {
+  const result = new Date(date);
+  result.setHours(hours, minutes, 0, 0);
+  return result;
+}
+
+function getNextMondayAtEight() {
+  const now = new Date();
+  const result = new Date(now);
+  const day = result.getDay();
+  const daysUntilMonday = day === 0 ? 1 : 8 - day;
+
+  result.setDate(result.getDate() + daysUntilMonday);
+  result.setHours(8, 0, 0, 0);
+
+  return result;
 }
 
 function getErrorMessage(err: unknown, fallback: string) {
@@ -62,6 +92,10 @@ function getErrorMessage(err: unknown, fallback: string) {
     Array.isArray((err as any).response?.data?.message)
   ) {
     return (err as any).response.data.message.join(", ");
+  }
+
+  if (err instanceof Error) {
+    return err.message;
   }
 
   return fallback;
@@ -90,6 +124,60 @@ export default function NewAssessmentPage({ params }: PageProps) {
       type,
       timeLimitMinutes: type === "QUIZ" ? prev.timeLimitMinutes || 30 : "",
     }));
+  }
+
+  function setFromDate(date: Date) {
+    update("availableFrom", toDatetimeLocalValue(date));
+  }
+
+  function setUntilDate(date: Date) {
+    update("availableUntil", toDatetimeLocalValue(date));
+  }
+
+  function setAvailabilityPreset(preset: "now" | "tomorrow" | "nextMonday") {
+    const now = new Date();
+
+    if (preset === "now") {
+      const from = now;
+      const until = addDays(now, 7);
+
+      update("availableFrom", toDatetimeLocalValue(from));
+      update("availableUntil", toDatetimeLocalValue(until));
+      return;
+    }
+
+    if (preset === "tomorrow") {
+      const from = setTime(addDays(now, 1), 8, 0);
+      const until = setTime(addDays(now, 8), 23, 59);
+
+      update("availableFrom", toDatetimeLocalValue(from));
+      update("availableUntil", toDatetimeLocalValue(until));
+      return;
+    }
+
+    const from = getNextMondayAtEight();
+    const until = setTime(addDays(from, 7), 23, 59);
+
+    update("availableFrom", toDatetimeLocalValue(from));
+    update("availableUntil", toDatetimeLocalValue(until));
+  }
+
+  function extendUntil(days: number) {
+    const baseDate = form.availableFrom
+      ? new Date(form.availableFrom)
+      : new Date();
+
+    if (Number.isNaN(baseDate.getTime())) return;
+
+    const until = addDays(baseDate, days);
+    until.setHours(23, 59, 0, 0);
+
+    setUntilDate(until);
+  }
+
+  function clearAvailability() {
+    update("availableFrom", "");
+    update("availableUntil", "");
   }
 
   function validateForm() {
@@ -179,9 +267,14 @@ export default function NewAssessmentPage({ params }: PageProps) {
         payload
       );
 
-      router.push(
-        `/instructor/courses/${courseId}/assessments/${created.id}/questions`
-      );
+      if (created.type === "QUIZ") {
+        router.push(
+          `/instructor/courses/${courseId}/assessments/${created.id}/questions`
+        );
+        return;
+      }
+
+      router.push(`/instructor/courses/${courseId}/assessments`);
     } catch (err) {
       setError(getErrorMessage(err, "Could not create assessment."));
     } finally {
@@ -236,7 +329,9 @@ export default function NewAssessmentPage({ params }: PageProps) {
             <label className="text-sm font-medium">Type</label>
             <select
               value={form.type}
-              onChange={(e) => handleTypeChange(e.target.value as AssessmentType)}
+              onChange={(e) =>
+                handleTypeChange(e.target.value as AssessmentType)
+              }
               className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
             >
               <option value="QUIZ">Quiz</option>
@@ -301,25 +396,96 @@ export default function NewAssessmentPage({ params }: PageProps) {
           )}
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Available from</label>
-            <input
-              type="datetime-local"
-              value={form.availableFrom}
-              onChange={(e) => update("availableFrom", e.target.value)}
-              className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
-            />
+        <div className="space-y-3 rounded-xl border bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
+          <div>
+            <p className="text-sm font-medium">Availability</p>
+            <p className="text-xs text-zinc-500">
+              Choose when learners can access this assessment.
+            </p>
           </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Available until</label>
-            <input
-              type="datetime-local"
-              value={form.availableUntil}
-              onChange={(e) => update("availableUntil", e.target.value)}
-              className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
-            />
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setAvailabilityPreset("now")}
+              className="rounded-lg border bg-white px-3 py-2 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950 dark:hover:bg-zinc-900"
+            >
+              Now → 7 days
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAvailabilityPreset("tomorrow")}
+              className="rounded-lg border bg-white px-3 py-2 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950 dark:hover:bg-zinc-900"
+            >
+              Tomorrow 8:00 → 7 days
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAvailabilityPreset("nextMonday")}
+              className="rounded-lg border bg-white px-3 py-2 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950 dark:hover:bg-zinc-900"
+            >
+              Next Monday 8:00
+            </button>
+
+            <button
+              type="button"
+              onClick={clearAvailability}
+              className="rounded-lg border bg-white px-3 py-2 text-xs text-red-600 hover:bg-red-50 dark:border-zinc-700 dark:bg-zinc-950 dark:hover:bg-red-950/30"
+            >
+              Clear
+            </button>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Available from</label>
+              <input
+                type="datetime-local"
+                value={form.availableFrom}
+                onChange={(e) => update("availableFrom", e.target.value)}
+                className="w-full rounded-lg border bg-white px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Available until</label>
+              <input
+                type="datetime-local"
+                value={form.availableUntil}
+                onChange={(e) => update("availableUntil", e.target.value)}
+                className="w-full rounded-lg border bg-white px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-zinc-500">Set end date:</span>
+
+            <button
+              type="button"
+              onClick={() => extendUntil(1)}
+              className="rounded-lg border bg-white px-3 py-1.5 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950 dark:hover:bg-zinc-900"
+            >
+              +1 day
+            </button>
+
+            <button
+              type="button"
+              onClick={() => extendUntil(3)}
+              className="rounded-lg border bg-white px-3 py-1.5 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950 dark:hover:bg-zinc-900"
+            >
+              +3 days
+            </button>
+
+            <button
+              type="button"
+              onClick={() => extendUntil(7)}
+              className="rounded-lg border bg-white px-3 py-1.5 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950 dark:hover:bg-zinc-900"
+            >
+              +7 days
+            </button>
           </div>
         </div>
 

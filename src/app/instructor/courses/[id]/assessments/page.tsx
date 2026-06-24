@@ -33,6 +33,10 @@ function getErrorMessage(err: unknown, fallback: string) {
     return (err as any).response.data.message.join(", ");
   }
 
+  if (err instanceof Error) {
+    return err.message;
+  }
+
   return fallback;
 }
 
@@ -54,7 +58,6 @@ export default function InstructorCourseAssessmentsPage({ params }: PageProps) {
   const [data, setData] =
     useState<PaginatedAssessmentResponse<Assessment> | null>(null);
 
-  const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [type, setType] = useState("");
 
@@ -72,7 +75,11 @@ export default function InstructorCourseAssessmentsPage({ params }: PageProps) {
 
   const assessments = useMemo(() => data?.data || [], [data]);
 
-  async function loadAssessments(options?: { silent?: boolean }) {
+  async function loadAssessments(options?: {
+    silent?: boolean;
+    nextType?: string;
+    nextStatus?: string;
+  }) {
     try {
       if (options?.silent) {
         setFiltering(true);
@@ -82,18 +89,20 @@ export default function InstructorCourseAssessmentsPage({ params }: PageProps) {
 
       setError(null);
 
-      const params: Record<string, string | number> = {
+      const requestParams: Record<string, string | number> = {
         page: 1,
         limit: 20,
       };
 
-      if (search.trim()) params.search = search.trim();
-      if (status) params.status = status;
-      if (type) params.type = type;
+      const selectedType = options?.nextType ?? type;
+      const selectedStatus = options?.nextStatus ?? status;
+
+      if (selectedType) requestParams.type = selectedType;
+      if (selectedStatus) requestParams.status = selectedStatus;
 
       const result = await assessmentService.getInstructorAssessments(
         courseId,
-        params
+        requestParams
       );
 
       setData(result);
@@ -108,6 +117,16 @@ export default function InstructorCourseAssessmentsPage({ params }: PageProps) {
   useEffect(() => {
     loadAssessments();
   }, [courseId]);
+
+  async function handleTypeChange(value: string) {
+    setType(value);
+    await loadAssessments({ silent: true, nextType: value });
+  }
+
+  async function handleStatusChange(value: string) {
+    setStatus(value);
+    await loadAssessments({ silent: true, nextStatus: value });
+  }
 
   async function confirmDeleteAssessment() {
     if (!assessmentToDelete) return;
@@ -145,12 +164,6 @@ export default function InstructorCourseAssessmentsPage({ params }: PageProps) {
     }
   }
 
-  function resetFilters() {
-    setSearch("");
-    setStatus("");
-    setType("");
-  }
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -164,27 +177,37 @@ export default function InstructorCourseAssessmentsPage({ params }: PageProps) {
           </p>
         </div>
 
-        <Link
-          href={`/instructor/courses/${courseId}/assessments/new`}
-          className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 dark:bg-white dark:text-zinc-900"
-        >
-          New assessment
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href={`/instructor/courses/${courseId}/curriculum`}
+            className="rounded-lg border px-4 py-2 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+          >
+            Curriculum
+          </Link>
+
+          <Link
+            href={`/instructor/courses/${courseId}/assessments/new`}
+            className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 dark:bg-white dark:text-zinc-900"
+          >
+            New assessment
+          </Link>
+        </div>
       </div>
 
-      <div className="rounded-xl border bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
-        <div className="grid gap-3 md:grid-cols-[1fr_160px_160px_auto_auto]">
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by title..."
-            className="rounded-lg border px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
-          />
+      <div className="flex flex-col gap-3 rounded-xl border bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-medium">Filters</p>
+          <p className="text-xs text-zinc-500">
+            Use these only when this course has many assessments.
+          </p>
+        </div>
 
+        <div className="flex flex-col gap-2 sm:flex-row">
           <select
             value={type}
-            onChange={(event) => setType(event.target.value)}
-            className="rounded-lg border px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
+            onChange={(event) => handleTypeChange(event.target.value)}
+            disabled={filtering}
+            className="rounded-lg border px-3 py-2 text-sm outline-none focus:border-zinc-500 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900"
           >
             <option value="">All types</option>
             <option value="QUIZ">Quiz</option>
@@ -193,33 +216,21 @@ export default function InstructorCourseAssessmentsPage({ params }: PageProps) {
 
           <select
             value={status}
-            onChange={(event) => setStatus(event.target.value)}
-            className="rounded-lg border px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
+            onChange={(event) => handleStatusChange(event.target.value)}
+            disabled={filtering}
+            className="rounded-lg border px-3 py-2 text-sm outline-none focus:border-zinc-500 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900"
           >
             <option value="">All statuses</option>
             <option value="DRAFT">Draft</option>
             <option value="PUBLISHED">Published</option>
             <option value="ARCHIVED">Archived</option>
           </select>
-
-          <button
-            type="button"
-            onClick={() => loadAssessments({ silent: true })}
-            disabled={filtering}
-            className="rounded-lg border px-4 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
-          >
-            {filtering ? "Filtering..." : "Filter"}
-          </button>
-
-          <button
-            type="button"
-            onClick={resetFilters}
-            className="rounded-lg border px-4 py-2 text-sm font-medium hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
-          >
-            Reset
-          </button>
         </div>
       </div>
+
+      {filtering && (
+        <p className="text-sm text-zinc-500">Updating assessments...</p>
+      )}
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
@@ -227,18 +238,20 @@ export default function InstructorCourseAssessmentsPage({ params }: PageProps) {
         </div>
       )}
 
-      {loading && <p className="text-sm text-zinc-500">Loading assessments...</p>}
+      {loading && (
+        <p className="text-sm text-zinc-500">Loading assessments...</p>
+      )}
 
       {!loading && assessments.length === 0 && (
         <div className="rounded-xl border border-dashed p-8 text-center text-sm text-zinc-500 dark:border-zinc-800">
-          No assessments have been created yet. Create your first quiz or
-          project.
+          No assessments found for this course.
         </div>
       )}
 
       <div className="grid gap-4">
         {assessments.map((assessment) => {
           const isPublished = assessment.status === "PUBLISHED";
+          const isQuiz = assessment.type === "QUIZ";
 
           return (
             <div
@@ -304,12 +317,14 @@ export default function InstructorCourseAssessmentsPage({ params }: PageProps) {
                     Edit
                   </Link>
 
-                  <Link
-                    href={`/instructor/courses/${courseId}/assessments/${assessment.id}/questions`}
-                    className="rounded-lg border px-3 py-2 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
-                  >
-                    Questions
-                  </Link>
+                  {isQuiz && (
+                    <Link
+                      href={`/instructor/courses/${courseId}/assessments/${assessment.id}/questions`}
+                      className="rounded-lg border px-3 py-2 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+                    >
+                      Questions
+                    </Link>
+                  )}
 
                   {!isPublished && (
                     <button

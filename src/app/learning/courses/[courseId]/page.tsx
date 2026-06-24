@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  ClipboardList,
   FileText,
   ImageIcon,
   ListVideo,
@@ -17,6 +18,7 @@ import {
 
 import { useAuth } from "@/providers/AuthProvider";
 import { learningService, unwrapData } from "@/services/learning.service";
+import { assessmentService } from "@/services/assessment.service";
 
 import type {
   CourseLearningDetail,
@@ -24,6 +26,7 @@ import type {
   LearningLesson,
   LearningSection,
 } from "@/services/learning.service";
+import type { LearnerAssessment } from "@/types/assessment";
 
 type FlatLesson = {
   sectionId: string;
@@ -57,6 +60,33 @@ function getPrimaryFile(lesson: LearningLesson | null) {
   if (image) return image;
 
   return lesson.files[0];
+}
+
+function getAssessmentButtonText(assessment: LearnerAssessment) {
+  if (assessment.primaryAction === "START") return "Start";
+  if (assessment.primaryAction === "CONTINUE") return "Continue";
+  if (assessment.primaryAction === "VIEW_RESULT") return "View result";
+  return "Unavailable";
+}
+
+function stateClassName(state: string) {
+  if (state === "CAN_START" || state === "CAN_CONTINUE") {
+    return "bg-emerald-100 text-emerald-700";
+  }
+
+  if (state === "COMPLETED") {
+    return "bg-blue-100 text-blue-700";
+  }
+
+  if (state === "MAX_ATTEMPTS_REACHED" || state === "LOCKED") {
+    return "bg-red-100 text-red-700";
+  }
+
+  if (state === "NOT_AVAILABLE") {
+    return "bg-amber-100 text-amber-700";
+  }
+
+  return "bg-zinc-100 text-zinc-700";
 }
 
 function renderFileIcon(type?: string) {
@@ -268,11 +298,14 @@ export default function LearningCoursePage() {
   const courseId = String(params.courseId);
 
   const [course, setCourse] = useState<CourseLearningDetail | null>(null);
+  const [assessments, setAssessments] = useState<LearnerAssessment[]>([]);
   const [selectedLesson, setSelectedLesson] =
     useState<LearningLesson | null>(null);
 
   const [loading, setLoading] = useState(false);
+  const [assessmentLoading, setAssessmentLoading] = useState(false);
   const [error, setError] = useState("");
+  const [assessmentError, setAssessmentError] = useState("");
 
   const flatLessons = useMemo(() => flattenLessons(course), [course]);
 
@@ -325,6 +358,51 @@ export default function LearningCoursePage() {
     }
   }
 
+  async function fetchCourseAssessments() {
+    try {
+      setAssessmentLoading(true);
+      setAssessmentError("");
+
+      const data = await assessmentService.getLearnerAssessments(courseId);
+
+      setAssessments(Array.isArray(data) ? data : []);
+    } catch (err: any) {
+      setAssessmentError(
+        err?.response?.data?.message ||
+          err?.message ||
+          "Failed to load assessments."
+      );
+    } finally {
+      setAssessmentLoading(false);
+    }
+  }
+
+  function handleAssessmentAction(assessment: LearnerAssessment) {
+    const assessmentId = assessment.assessmentId;
+
+    if (
+      assessment.primaryAction === "CONTINUE" &&
+      assessment.latestAttempt?.attemptId
+    ) {
+      router.push(
+        `/learning/courses/${courseId}/assessments/${assessmentId}/attempt?attemptId=${assessment.latestAttempt.attemptId}`
+      );
+      return;
+    }
+
+    if (
+      assessment.primaryAction === "VIEW_RESULT" &&
+      assessment.latestAttempt?.attemptId
+    ) {
+      router.push(
+        `/learning/courses/${courseId}/assessments/${assessmentId}/result/${assessment.latestAttempt.attemptId}`
+      );
+      return;
+    }
+
+    router.push(`/learning/courses/${courseId}/assessments/${assessmentId}`);
+  }
+
   useEffect(() => {
     if (authLoading) return;
 
@@ -338,6 +416,7 @@ export default function LearningCoursePage() {
     }
 
     fetchLearningCourse();
+    fetchCourseAssessments();
   }, [authLoading, user, courseId]);
 
   if (authLoading) {
@@ -405,6 +484,8 @@ export default function LearningCoursePage() {
           <div className="flex flex-wrap gap-4 text-sm text-zinc-500">
             <span>{totalLessons} lessons</span>
 
+            <span>{assessments.length} assessments</span>
+
             {course?.certificateEnabled && (
               <span className="inline-flex items-center gap-1">
                 <CheckCircle2 className="h-4 w-4" />
@@ -413,6 +494,110 @@ export default function LearningCoursePage() {
             )}
           </div>
         </div>
+      </section>
+
+      <section className="rounded-2xl border bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <ClipboardList className="h-5 w-5 text-zinc-500" />
+              <h2 className="text-xl font-bold text-zinc-950">
+                Course Assessments
+              </h2>
+            </div>
+
+            <p className="mt-1 text-sm text-zinc-500">
+              Complete quizzes and projects assigned to this course.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => router.push(`/learning/courses/${courseId}/assessments`)}
+            className="rounded-xl border bg-white px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
+          >
+            View all
+          </button>
+        </div>
+
+        {assessmentError && (
+          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {assessmentError}
+          </div>
+        )}
+
+        {assessmentLoading ? (
+          <p className="mt-4 text-sm text-zinc-500">Loading assessments...</p>
+        ) : assessments.length === 0 ? (
+          <div className="mt-4 rounded-xl border border-dashed p-6 text-center text-sm text-zinc-500">
+            No assessments are available for this course yet.
+          </div>
+        ) : (
+          <div className="mt-4 grid gap-3">
+            {assessments.slice(0, 3).map((assessment) => (
+              <div
+                key={assessment.assessmentId}
+                className="flex flex-col gap-3 rounded-xl border bg-zinc-50 p-4 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="font-semibold text-zinc-950">
+                      {assessment.title}
+                    </h3>
+
+                    <span className="rounded-full bg-zinc-200 px-2 py-1 text-xs font-semibold text-zinc-700">
+                      {assessment.type}
+                    </span>
+
+                    <span
+                      className={`rounded-full px-2 py-1 text-xs font-semibold ${stateClassName(
+                        assessment.state
+                      )}`}
+                    >
+                      {assessment.state}
+                    </span>
+                  </div>
+
+                  <p className="mt-1 line-clamp-2 text-sm text-zinc-500">
+                    {assessment.description || "No description"}
+                  </p>
+
+                  <div className="mt-2 flex flex-wrap gap-3 text-xs text-zinc-500">
+                    <span>Total points: {assessment.totalPoints}</span>
+                    <span>
+                      Attempts: {assessment.attemptsUsed}/
+                      {assessment.maxAttempts ?? "∞"}
+                    </span>
+                    {assessment.timeLimitMinutes && (
+                      <span>{assessment.timeLimitMinutes} min</span>
+                    )}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={assessment.primaryAction === "NONE"}
+                  onClick={() => handleAssessmentAction(assessment)}
+                  className="shrink-0 rounded-xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {getAssessmentButtonText(assessment)}
+                </button>
+              </div>
+            ))}
+
+            {assessments.length > 3 && (
+              <button
+                type="button"
+                onClick={() =>
+                  router.push(`/learning/courses/${courseId}/assessments`)
+                }
+                className="rounded-xl border bg-white px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
+              >
+                View {assessments.length - 3} more assessments
+              </button>
+            )}
+          </div>
+        )}
       </section>
 
       {error && (

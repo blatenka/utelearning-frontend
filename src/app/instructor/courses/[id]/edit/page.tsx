@@ -65,7 +65,6 @@ function formatFileSize(size: number) {
 
 function isGoodThumbnailSize(width: number | null, height: number | null) {
   if (!width || !height) return false;
-
   return width >= 800 && height >= 450;
 }
 
@@ -79,6 +78,32 @@ function getAspectRatioText(width: number | null, height: number | null) {
   }
 
   return `${width}:${height}`;
+}
+
+function getErrorMessage(err: unknown, fallback: string) {
+  if (
+    typeof err === "object" &&
+    err !== null &&
+    "response" in err &&
+    typeof (err as any).response?.data?.message === "string"
+  ) {
+    return (err as any).response.data.message;
+  }
+
+  if (
+    typeof err === "object" &&
+    err !== null &&
+    "response" in err &&
+    Array.isArray((err as any).response?.data?.message)
+  ) {
+    return (err as any).response.data.message.join(", ");
+  }
+
+  if (err instanceof Error) {
+    return err.message;
+  }
+
+  return fallback;
 }
 
 async function getImageSize(file: File): Promise<{
@@ -162,6 +187,9 @@ export default function InstructorCourseEditPage() {
   const [pendingThumbnail, setPendingThumbnail] =
     useState<PendingThumbnail>(null);
 
+  const [showSubmitReviewModal, setShowSubmitReviewModal] = useState(false);
+  const [showDeleteDraftModal, setShowDeleteDraftModal] = useState(false);
+
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 
@@ -223,12 +251,8 @@ export default function InstructorCourseEditPage() {
 
       setCourse(currentCourse);
       fillCourseForm(currentCourse);
-    } catch (err: any) {
-      setError(
-        err?.response?.data?.message ||
-        err?.message ||
-        "Failed to load course edit page."
-      );
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to load course edit page."));
     } finally {
       setLoading(false);
     }
@@ -291,6 +315,7 @@ export default function InstructorCourseEditPage() {
         });
 
       const signature = unwrapData<UploadSignatureResponse>(signatureResponse);
+
       const cloudinaryResult = await uploadImageToCloudinary(
         pendingThumbnail.file,
         signature
@@ -306,12 +331,8 @@ export default function InstructorCourseEditPage() {
       setSuccessMessage(
         "Thumbnail uploaded. Click Save Course to store it in our system."
       );
-    } catch (err: any) {
-      setError(
-        err?.response?.data?.message ||
-        err?.message ||
-        "Failed to upload thumbnail."
-      );
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to upload thumbnail."));
     } finally {
       setUploadingThumbnail(false);
     }
@@ -353,20 +374,18 @@ export default function InstructorCourseEditPage() {
       }
 
       setSuccessMessage("Course information saved successfully.");
-    } catch (err: any) {
-      setError(err?.response?.data?.message || "Failed to save course.");
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to save course."));
     } finally {
       setSavingCourse(false);
     }
   }
 
-  async function handleSubmitForReview() {
-    const confirmed = window.confirm(
-      "Submit this draft course for review? You may not be able to edit it after submitting."
-    );
+  function handleSubmitForReview() {
+    setShowSubmitReviewModal(true);
+  }
 
-    if (!confirmed) return;
-
+  async function confirmSubmitForReview() {
     try {
       setSubmittingReview(true);
       setError("");
@@ -374,31 +393,31 @@ export default function InstructorCourseEditPage() {
 
       await instructorCourseService.submitForReview(courseId);
 
+      setShowSubmitReviewModal(false);
       setSuccessMessage("Course submitted for review successfully.");
       await fetchCourse();
-    } catch (err: any) {
-      setError(err?.response?.data?.message || "Failed to submit for review.");
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to submit for review."));
     } finally {
       setSubmittingReview(false);
     }
   }
 
-  async function handleDeleteDraft() {
-    const confirmed = window.confirm(
-      "Delete this draft course? This action cannot be undone."
-    );
+  function handleDeleteDraft() {
+    setShowDeleteDraftModal(true);
+  }
 
-    if (!confirmed) return;
-
+  async function confirmDeleteDraft() {
     try {
       setDeletingDraft(true);
       setError("");
 
       await instructorCourseService.deleteDraftCourse(courseId);
 
+      setShowDeleteDraftModal(false);
       router.push("/instructor/courses");
-    } catch (err: any) {
-      setError(err?.response?.data?.message || "Failed to delete draft course.");
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to delete draft course."));
     } finally {
       setDeletingDraft(false);
     }
@@ -452,13 +471,27 @@ export default function InstructorCourseEditPage() {
           >
             Manage Curriculum
           </Button>
+
           <Button
             type="button"
             variant="outline"
-            onClick={() => router.push(`/instructor/courses/${courseId}/preview`)}
+            onClick={() =>
+              router.push(`/instructor/courses/${courseId}/assessments`)
+            }
+          >
+            Assessments
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() =>
+              router.push(`/instructor/courses/${courseId}/preview`)
+            }
           >
             Preview Course
           </Button>
+
           <Button
             type="button"
             variant="outline"
@@ -483,7 +516,7 @@ export default function InstructorCourseEditPage() {
 
       {error && (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {Array.isArray(error) ? error.join(", ") : error}
+          {error}
         </div>
       )}
 
@@ -747,7 +780,9 @@ export default function InstructorCourseEditPage() {
                   <div className="p-4">
                     <div className="mb-2 flex flex-wrap gap-2">
                       {level && <Badge>{level}</Badge>}
-                      {language && <Badge variant="secondary">{language}</Badge>}
+                      {language && (
+                        <Badge variant="secondary">{language}</Badge>
+                      )}
                     </div>
 
                     <h2 className="line-clamp-2 font-semibold text-zinc-900">
@@ -761,7 +796,9 @@ export default function InstructorCourseEditPage() {
                     </p>
 
                     <p className="mt-4 text-sm font-semibold text-zinc-900">
-                      {price ? `${Number(price).toLocaleString("vi-VN")} VND` : "Free"}
+                      {price
+                        ? `${Number(price).toLocaleString("vi-VN")} VND`
+                        : "Free"}
                     </p>
                   </div>
                 </div>
@@ -874,6 +911,95 @@ export default function InstructorCourseEditPage() {
                 disabled={uploadingThumbnail}
               >
                 {uploadingThumbnail ? "Uploading..." : "Confirm Upload"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showSubmitReviewModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <h2 className="text-lg font-semibold text-zinc-900">
+              Submit course for review?
+            </h2>
+
+            <p className="mt-2 text-sm text-zinc-500">
+              After submitting, this course will be sent to reviewers. You may
+              not be able to edit the course while it is under review.
+            </p>
+
+            <div className="mt-4 rounded-lg border bg-zinc-50 p-3 text-sm">
+              <p className="font-medium text-zinc-900">
+                {course?.title || "Untitled course"}
+              </p>
+              <p className="mt-1 text-xs text-zinc-500">
+                Status: {course?.status || "DRAFT"}
+              </p>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowSubmitReviewModal(false)}
+                disabled={submittingReview}
+              >
+                Cancel
+              </Button>
+
+              <Button
+                type="button"
+                onClick={confirmSubmitForReview}
+                disabled={submittingReview}
+              >
+                <Send className="mr-2 h-4 w-4" />
+                {submittingReview ? "Submitting..." : "Submit for Review"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDeleteDraftModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <h2 className="text-lg font-semibold text-zinc-900">
+              Delete draft course?
+            </h2>
+
+            <p className="mt-2 text-sm text-zinc-500">
+              This action cannot be undone. The draft course and its draft
+              content will be removed from your course list.
+            </p>
+
+            <div className="mt-4 rounded-lg border bg-zinc-50 p-3 text-sm">
+              <p className="font-medium text-zinc-900">
+                {course?.title || "Untitled course"}
+              </p>
+              <p className="mt-1 text-xs text-zinc-500">
+                Status: {course?.status || "DRAFT"}
+              </p>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowDeleteDraftModal(false)}
+                disabled={deletingDraft}
+              >
+                Cancel
+              </Button>
+
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={confirmDeleteDraft}
+                disabled={deletingDraft}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                {deletingDraft ? "Deleting..." : "Delete Draft"}
               </Button>
             </div>
           </div>
