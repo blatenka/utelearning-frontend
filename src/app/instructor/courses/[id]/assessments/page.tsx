@@ -2,6 +2,7 @@
 
 import React, { use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { CheckCircle2, XCircle } from "lucide-react";
 import { assessmentService } from "@/services/assessment.service";
 import type {
   Assessment,
@@ -71,9 +72,25 @@ export default function InstructorCourseAssessmentsPage({ params }: PageProps) {
   const [filtering, setFiltering] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [publishing, setPublishing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+
+  const [errorModalMessage, setErrorModalMessage] = useState<string | null>(
+    null
+  );
+  const [successModalMessage, setSuccessModalMessage] = useState<string | null>(
+    null
+  );
 
   const assessments = useMemo(() => data?.data || [], [data]);
+
+  function showError(message: string) {
+    setSuccessModalMessage(null);
+    setErrorModalMessage(message);
+  }
+
+  function showSuccess(message: string) {
+    setErrorModalMessage(null);
+    setSuccessModalMessage(message);
+  }
 
   async function loadAssessments(options?: {
     silent?: boolean;
@@ -87,7 +104,7 @@ export default function InstructorCourseAssessmentsPage({ params }: PageProps) {
         setLoading(true);
       }
 
-      setError(null);
+      setErrorModalMessage(null);
 
       const requestParams: Record<string, string | number> = {
         page: 1,
@@ -107,7 +124,7 @@ export default function InstructorCourseAssessmentsPage({ params }: PageProps) {
 
       setData(result);
     } catch (err) {
-      setError(getErrorMessage(err, "Could not load assessments."));
+      showError(getErrorMessage(err, "Could not load assessments."));
     } finally {
       setLoading(false);
       setFiltering(false);
@@ -133,14 +150,16 @@ export default function InstructorCourseAssessmentsPage({ params }: PageProps) {
 
     try {
       setDeleting(true);
-      setError(null);
+      setErrorModalMessage(null);
+      setSuccessModalMessage(null);
 
       await assessmentService.deleteAssessment(courseId, assessmentToDelete.id);
 
       setAssessmentToDelete(null);
       await loadAssessments({ silent: true });
+      showSuccess("Assessment deleted successfully.");
     } catch (err) {
-      setError(getErrorMessage(err, "Could not delete assessment."));
+      showError(getErrorMessage(err, "Could not delete assessment."));
     } finally {
       setDeleting(false);
     }
@@ -151,14 +170,19 @@ export default function InstructorCourseAssessmentsPage({ params }: PageProps) {
 
     try {
       setPublishing(true);
-      setError(null);
+      setErrorModalMessage(null);
+      setSuccessModalMessage(null);
 
-      await assessmentService.publishAssessment(courseId, assessmentToPublish.id);
+      await assessmentService.publishAssessment(
+        courseId,
+        assessmentToPublish.id
+      );
 
       setAssessmentToPublish(null);
       await loadAssessments({ silent: true });
+      showSuccess("Assessment published successfully.");
     } catch (err) {
-      setError(getErrorMessage(err, "Could not publish assessment."));
+      showError(getErrorMessage(err, "Could not publish assessment."));
     } finally {
       setPublishing(false);
     }
@@ -230,12 +254,6 @@ export default function InstructorCourseAssessmentsPage({ params }: PageProps) {
 
       {filtering && (
         <p className="text-sm text-zinc-500">Updating assessments...</p>
-      )}
-
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
-          {error}
-        </div>
       )}
 
       {loading && (
@@ -427,6 +445,70 @@ export default function InstructorCourseAssessmentsPage({ params }: PageProps) {
                 className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
               >
                 {deleting ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {errorModalMessage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-md rounded-2xl border bg-white p-6 shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100 dark:bg-red-950/50">
+                <XCircle className="h-5 w-5 text-red-700 dark:text-red-300" />
+              </div>
+
+              <div>
+                <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+                  Something went wrong
+                </h2>
+
+                <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-600 dark:text-zinc-300">
+                  {errorModalMessage}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setErrorModalMessage(null)}
+                className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white dark:bg-white dark:text-zinc-900"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {successModalMessage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-md rounded-2xl border bg-white p-6 shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-950/50">
+                <CheckCircle2 className="h-5 w-5 text-emerald-700 dark:text-emerald-300" />
+              </div>
+
+              <div>
+                <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+                  Success
+                </h2>
+
+                <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-600 dark:text-zinc-300">
+                  {successModalMessage}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSuccessModalMessage(null)}
+                className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white dark:bg-white dark:text-zinc-900"
+              >
+                Close
               </button>
             </div>
           </div>

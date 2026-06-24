@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 
+import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -37,7 +38,20 @@ import type {
   UploadSignatureResponse,
 } from "@/services/instructor-course.service";
 
-const courseLevels: CourseLevel[] = ["BEGINNER", "INTERMEDIATE", "ADVANCED"];
+const courseLevels: CourseLevel[] = ["BEGINNER", "INTERMEDIATE", "ADVANCE", "ALL_LEVELS"];
+
+type Category = {
+  id: string;
+  name: string;
+  children?: Category[];
+};
+
+type CategoryOption = {
+  id: string;
+  name: string;
+  depth: number;
+  isLeaf: boolean;
+};
 
 type PendingThumbnail = {
   file: File;
@@ -45,6 +59,59 @@ type PendingThumbnail = {
   width: number | null;
   height: number | null;
 } | null;
+
+function buildCategoryOptions(
+  categories: Category[],
+  depth = 0
+): CategoryOption[] {
+  return categories.flatMap((category) => {
+    const children = category.children || [];
+
+    const option: CategoryOption = {
+      id: category.id,
+      name: category.name,
+      depth,
+      isLeaf: children.length === 0,
+    };
+
+    return [option, ...buildCategoryOptions(children, depth + 1)];
+  });
+}
+
+function formatCategoryLabel(option: CategoryOption) {
+  const prefix = option.depth > 0 ? `${" ".repeat(option.depth)}` : "";
+  const suffix = option.isLeaf ? "" : " (Parent Group)";
+  return `${prefix}${option.name}${suffix}`;
+}
+
+function getCourseCategoryId(currentCourse: InstructorCourse) {
+  const courseLike = currentCourse as any;
+
+  if (typeof courseLike.categoryId === "string") {
+    return courseLike.categoryId;
+  }
+
+  if (Array.isArray(courseLike.categoryIds) && courseLike.categoryIds[0]) {
+    return String(courseLike.categoryIds[0]);
+  }
+
+  if (Array.isArray(courseLike.categories) && courseLike.categories[0]?.id) {
+    return String(courseLike.categories[0].id);
+  }
+
+  if (
+    Array.isArray(courseLike.courseCategories) &&
+    courseLike.courseCategories[0]
+  ) {
+    return (
+      courseLike.courseCategories[0]?.categoryId ||
+      courseLike.courseCategories[0]?.category?.id ||
+      ""
+    );
+  }
+
+  return "";
+}
 
 function linesToArray(value: string) {
   return value
@@ -183,15 +250,21 @@ export default function InstructorCourseEditPage() {
   const [submittingReview, setSubmittingReview] = useState(false);
   const [deletingDraft, setDeletingDraft] = useState(false);
   const [uploadingThumbnail, setUploadingThumbnail] = useState(false);
+  const [categoryLoading, setCategoryLoading] = useState(false);
 
   const [pendingThumbnail, setPendingThumbnail] =
     useState<PendingThumbnail>(null);
 
   const [showSubmitReviewModal, setShowSubmitReviewModal] = useState(false);
   const [showDeleteDraftModal, setShowDeleteDraftModal] = useState(false);
+  const [errorModalMessage, setErrorModalMessage] = useState<string | null>(
+    null
+  );
 
-  const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+
+  const [categoryTree, setCategoryTree] = useState<Category[]>([]);
+  const [categoryId, setCategoryId] = useState("");
 
   const [title, setTitle] = useState("");
   const [shortDescription, setShortDescription] = useState("");
@@ -204,6 +277,14 @@ export default function InstructorCourseEditPage() {
   const [certificateEnabled, setCertificateEnabled] = useState(false);
   const [thumbnailUrl, setThumbnailUrl] = useState("");
 
+  const categoryOptions = useMemo(() => {
+    return buildCategoryOptions(categoryTree);
+  }, [categoryTree]);
+
+  const selectedCategory = useMemo(() => {
+    return categoryOptions.find((category) => category.id === categoryId);
+  }, [categoryOptions, categoryId]);
+
   const canEditDraft = useMemo(() => {
     const status = course?.status?.toUpperCase();
 
@@ -215,6 +296,10 @@ export default function InstructorCourseEditPage() {
 
     return isGoodThumbnailSize(pendingThumbnail.width, pendingThumbnail.height);
   }, [pendingThumbnail]);
+
+  function showError(message: string) {
+    setErrorModalMessage(message);
+  }
 
   function fillCourseForm(currentCourse: InstructorCourse) {
     setTitle(currentCourse.title ?? "");
@@ -229,12 +314,28 @@ export default function InstructorCourseEditPage() {
     setLanguage(currentCourse.language ?? "");
     setCertificateEnabled(Boolean(currentCourse.certificateEnabled));
     setThumbnailUrl(currentCourse.thumbnailUrl ?? "");
+    setCategoryId(getCourseCategoryId(currentCourse));
+  }
+
+  async function fetchCategories() {
+    try {
+      setCategoryLoading(true);
+
+      const response = await api.get("/v1/courses/public/category-tree");
+      const payload = unwrapData<Category[]>(response);
+
+      setCategoryTree(Array.isArray(payload) ? payload : []);
+    } catch (err) {
+      setCategoryTree([]);
+      showError(getErrorMessage(err, "Failed to load categories."));
+    } finally {
+      setCategoryLoading(false);
+    }
   }
 
   async function fetchCourse() {
     try {
       setLoading(true);
-      setError("");
       setSuccessMessage("");
 
       const response = await instructorCourseService.getMyCourses({
@@ -252,18 +353,17 @@ export default function InstructorCourseEditPage() {
       setCourse(currentCourse);
       fillCourseForm(currentCourse);
     } catch (err) {
-      setError(getErrorMessage(err, "Failed to load course edit page."));
+      showError(getErrorMessage(err, "Failed to load course edit page."));
     } finally {
       setLoading(false);
     }
   }
 
   async function handleSelectThumbnail(file: File) {
-    setError("");
     setSuccessMessage("");
 
     if (!file.type.startsWith("image/")) {
-      setError("Thumbnail must be an image file.");
+      showError("Thumbnail must be an image file.");
       return;
     }
 
@@ -271,7 +371,7 @@ export default function InstructorCourseEditPage() {
     const maxSizeInBytes = maxSizeInMb * 1024 * 1024;
 
     if (file.size > maxSizeInBytes) {
-      setError(`Thumbnail must be smaller than ${maxSizeInMb}MB.`);
+      showError(`Thumbnail must be smaller than ${maxSizeInMb}MB.`);
       return;
     }
 
@@ -303,7 +403,6 @@ export default function InstructorCourseEditPage() {
 
     try {
       setUploadingThumbnail(true);
-      setError("");
       setSuccessMessage("");
 
       const signatureResponse =
@@ -332,7 +431,7 @@ export default function InstructorCourseEditPage() {
         "Thumbnail uploaded. Click Save Course to store it in our system."
       );
     } catch (err) {
-      setError(getErrorMessage(err, "Failed to upload thumbnail."));
+      showError(getErrorMessage(err, "Failed to upload thumbnail."));
     } finally {
       setUploadingThumbnail(false);
     }
@@ -341,22 +440,37 @@ export default function InstructorCourseEditPage() {
   async function handleSaveCourse(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
+    if (!categoryId) {
+      showError("Please choose a category.");
+      return;
+    }
+
+    if (!selectedCategory?.isLeaf) {
+      showError("Please choose a child category, not a parent group.");
+      return;
+    }
+
+    if (price !== "" && Number(price) < 0) {
+      showError("Price must be greater than or equal to 0.");
+      return;
+    }
+
     try {
       setSavingCourse(true);
-      setError("");
       setSuccessMessage("");
 
       const payload = {
-        title,
-        shortDescription,
-        description: description || undefined,
+        title: title.trim(),
+        shortDescription: shortDescription.trim(),
+        description: description.trim() || undefined,
         whatYouWillLearn: linesToArray(whatYouWillLearn),
         requirements: linesToArray(requirements),
         level,
         price: price === "" ? undefined : Number(price),
-        language: language || undefined,
+        language: language.trim() || undefined,
         certificateEnabled,
         thumbnailUrl: thumbnailUrl || undefined,
+        categoryIds: [categoryId],
       };
 
       const response = await instructorCourseService.updateCourse(
@@ -375,7 +489,7 @@ export default function InstructorCourseEditPage() {
 
       setSuccessMessage("Course information saved successfully.");
     } catch (err) {
-      setError(getErrorMessage(err, "Failed to save course."));
+      showError(getErrorMessage(err, "Failed to save course."));
     } finally {
       setSavingCourse(false);
     }
@@ -388,7 +502,6 @@ export default function InstructorCourseEditPage() {
   async function confirmSubmitForReview() {
     try {
       setSubmittingReview(true);
-      setError("");
       setSuccessMessage("");
 
       await instructorCourseService.submitForReview(courseId);
@@ -397,7 +510,7 @@ export default function InstructorCourseEditPage() {
       setSuccessMessage("Course submitted for review successfully.");
       await fetchCourse();
     } catch (err) {
-      setError(getErrorMessage(err, "Failed to submit for review."));
+      showError(getErrorMessage(err, "Failed to submit for review."));
     } finally {
       setSubmittingReview(false);
     }
@@ -410,14 +523,13 @@ export default function InstructorCourseEditPage() {
   async function confirmDeleteDraft() {
     try {
       setDeletingDraft(true);
-      setError("");
 
       await instructorCourseService.deleteDraftCourse(courseId);
 
       setShowDeleteDraftModal(false);
       router.push("/instructor/courses");
     } catch (err) {
-      setError(getErrorMessage(err, "Failed to delete draft course."));
+      showError(getErrorMessage(err, "Failed to delete draft course."));
     } finally {
       setDeletingDraft(false);
     }
@@ -425,6 +537,7 @@ export default function InstructorCourseEditPage() {
 
   useEffect(() => {
     fetchCourse();
+    fetchCategories();
 
     return () => {
       if (pendingThumbnail?.previewUrl) {
@@ -451,7 +564,7 @@ export default function InstructorCourseEditPage() {
           </h1>
 
           <p className="mt-1 text-sm text-zinc-500">
-            Update basic course information and thumbnail.
+            Update course information, category, and thumbnail.
           </p>
         </div>
 
@@ -514,12 +627,6 @@ export default function InstructorCourseEditPage() {
         </div>
       </div>
 
-      {error && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-
       {successMessage && (
         <div className="mb-4 flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
           <CheckCircle2 className="mr-2 h-4 w-4" />
@@ -535,7 +642,7 @@ export default function InstructorCourseEditPage() {
             <CardHeader>
               <CardTitle>Course Information</CardTitle>
               <CardDescription>
-                These fields update only the basic course information.
+                These fields update the basic course information.
               </CardDescription>
             </CardHeader>
 
@@ -607,30 +714,68 @@ export default function InstructorCourseEditPage() {
 
                   <div>
                     <label className="mb-1 block text-sm font-medium">
-                      Price
+                      Category
+                    </label>
+                    <select
+                      value={categoryId}
+                      onChange={(event) => setCategoryId(event.target.value)}
+                      disabled={!canEditDraft || categoryLoading}
+                      required
+                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="">
+                        {categoryLoading ? "Loading..." : "Choose category"}
+                      </option>
+
+                      {categoryOptions.map((category) => (
+                        <option
+                          key={category.id}
+                          value={category.id}
+                          disabled={!category.isLeaf}
+                        >
+                          {formatCategoryLabel(category)}
+                        </option>
+                      ))}
+                    </select>
+
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Parent groups are disabled. Please choose a child
+                      category.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium">
+                      Price (VND)
                     </label>
                     <Input
                       type="number"
                       min={0}
-                      step="0.01"
+                      step="10000"
                       value={price}
                       onChange={(event) => setPrice(event.target.value)}
                       disabled={!canEditDraft}
+                      placeholder="100000"
+                    />
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Leave empty for free.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-sm font-medium">
+                      Language
+                    </label>
+                    <Input
+                      value={language}
+                      onChange={(event) => setLanguage(event.target.value)}
+                      placeholder="English, Vietnamese..."
+                      maxLength={50}
+                      disabled={!canEditDraft}
                     />
                   </div>
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-sm font-medium">
-                    Language
-                  </label>
-                  <Input
-                    value={language}
-                    onChange={(event) => setLanguage(event.target.value)}
-                    placeholder="English, Vietnamese..."
-                    maxLength={50}
-                    disabled={!canEditDraft}
-                  />
                 </div>
 
                 <label className="flex cursor-pointer items-center gap-2 text-sm">
@@ -782,6 +927,9 @@ export default function InstructorCourseEditPage() {
                       {level && <Badge>{level}</Badge>}
                       {language && (
                         <Badge variant="secondary">{language}</Badge>
+                      )}
+                      {selectedCategory && (
+                        <Badge variant="outline">{selectedCategory.name}</Badge>
                       )}
                     </div>
 
@@ -1000,6 +1148,29 @@ export default function InstructorCourseEditPage() {
               >
                 <Trash2 className="mr-2 h-4 w-4" />
                 {deletingDraft ? "Deleting..." : "Delete Draft"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {errorModalMessage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <h2 className="text-lg font-semibold text-zinc-900">
+              Something went wrong
+            </h2>
+
+            <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-600">
+              {errorModalMessage}
+            </p>
+
+            <div className="mt-6 flex justify-end">
+              <Button
+                type="button"
+                onClick={() => setErrorModalMessage(null)}
+              >
+                Close
               </Button>
             </div>
           </div>

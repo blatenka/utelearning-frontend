@@ -2,6 +2,10 @@ export type AssessmentType = "QUIZ" | "PROJECT";
 
 export type AssessmentStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED";
 
+export type AssessmentReviewTiming = "AFTER_GRADED" | "AFTER_SUBMISSION";
+
+export type AssessmentReviewContent = "SCORE_ONLY" | "SCORE_AND_ANSWERS";
+
 export type AssessmentQuestionType =
   | "MULTIPLE_CHOICE"
   | "TRUE_FALSE"
@@ -58,6 +62,8 @@ export type Assessment = {
   availableUntil?: string | null;
   status?: AssessmentStatus;
   isActive?: boolean;
+  assessmentReviewTiming?: AssessmentReviewTiming | null;
+  assessmentReviewContent?: AssessmentReviewContent | null;
   createdAt?: string;
   updatedAt?: string;
   deletedAt?: string | null;
@@ -92,11 +98,10 @@ export type UpdatePublishedAssessmentPayload = {
   availableUntil?: string | null;
   maxAttempts?: number | null;
   timeLimitMinutes?: number | null;
-  assessmentReviewTiming?: string | null;
-  assessmentReviewContent?: string | null;
+  assessmentReviewTiming?: AssessmentReviewTiming | null;
+  assessmentReviewContent?: AssessmentReviewContent | null;
   isActive?: boolean;
 };
-
 export type AssessmentAnswer = {
   id: string;
   questionId: string;

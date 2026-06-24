@@ -2,6 +2,7 @@
 
 import React, { use, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { CheckCircle2, XCircle } from "lucide-react";
 import { assessmentService } from "@/services/assessment.service";
 import type {
   AssessmentType,
@@ -24,6 +25,11 @@ type FormState = {
   availableFrom: string;
   availableUntil: string;
 };
+
+type SuccessModal = {
+  message: string;
+  redirectTo: string;
+} | null;
 
 const initialForm: FormState = {
   title: "",
@@ -108,11 +114,38 @@ export default function NewAssessmentPage({ params }: PageProps) {
   const [form, setForm] = useState<FormState>(initialForm);
   const [loading, setLoading] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+
+  const [errorModalMessage, setErrorModalMessage] = useState<string | null>(
+    null
+  );
+  const [successModal, setSuccessModal] = useState<SuccessModal>(null);
 
   const isDirty = useMemo(() => {
     return JSON.stringify(form) !== JSON.stringify(initialForm);
   }, [form]);
+
+  function showError(message: string) {
+    setSuccessModal(null);
+    setErrorModalMessage(message);
+  }
+
+  function showSuccess(message: string, redirectTo: string) {
+    setErrorModalMessage(null);
+    setSuccessModal({
+      message,
+      redirectTo,
+    });
+  }
+
+  function closeSuccessModal() {
+    const redirectTo = successModal?.redirectTo;
+
+    setSuccessModal(null);
+
+    if (redirectTo) {
+      router.push(redirectTo);
+    }
+  }
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -238,13 +271,14 @@ export default function NewAssessmentPage({ params }: PageProps) {
 
     const validationError = validateForm();
     if (validationError) {
-      setError(validationError);
+      showError(validationError);
       return;
     }
 
     try {
       setLoading(true);
-      setError(null);
+      setErrorModalMessage(null);
+      setSuccessModal(null);
 
       const payload: CreateAssessmentPayload = {
         title: form.title.trim(),
@@ -268,15 +302,19 @@ export default function NewAssessmentPage({ params }: PageProps) {
       );
 
       if (created.type === "QUIZ") {
-        router.push(
+        showSuccess(
+          "Assessment created successfully. You can now add questions.",
           `/instructor/courses/${courseId}/assessments/${created.id}/questions`
         );
         return;
       }
 
-      router.push(`/instructor/courses/${courseId}/assessments`);
+      showSuccess(
+        "Project assessment created successfully.",
+        `/instructor/courses/${courseId}/assessments`
+      );
     } catch (err) {
-      setError(getErrorMessage(err, "Could not create assessment."));
+      showError(getErrorMessage(err, "Could not create assessment."));
     } finally {
       setLoading(false);
     }
@@ -291,12 +329,6 @@ export default function NewAssessmentPage({ params }: PageProps) {
           Create a quiz or project for this course.
         </p>
       </div>
-
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
-          {error}
-        </div>
-      )}
 
       <form
         onSubmit={handleSubmit}
@@ -532,6 +564,70 @@ export default function NewAssessmentPage({ params }: PageProps) {
                 className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
               >
                 Discard
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {errorModalMessage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-md rounded-2xl border bg-white p-6 shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100 dark:bg-red-950/50">
+                <XCircle className="h-5 w-5 text-red-700 dark:text-red-300" />
+              </div>
+
+              <div>
+                <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+                  Something went wrong
+                </h2>
+
+                <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-600 dark:text-zinc-300">
+                  {errorModalMessage}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setErrorModalMessage(null)}
+                className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white dark:bg-white dark:text-zinc-900"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {successModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-md rounded-2xl border bg-white p-6 shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-950/50">
+                <CheckCircle2 className="h-5 w-5 text-emerald-700 dark:text-emerald-300" />
+              </div>
+
+              <div>
+                <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+                  Success
+                </h2>
+
+                <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-600 dark:text-zinc-300">
+                  {successModal.message}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={closeSuccessModal}
+                className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white dark:bg-white dark:text-zinc-900"
+              >
+                Continue
               </button>
             </div>
           </div>

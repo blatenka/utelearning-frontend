@@ -1,6 +1,6 @@
 import api from "@/lib/api";
 
-export type CourseLevel = "BEGINNER" | "INTERMEDIATE" | "ADVANCED";
+export type CourseLevel = "BEGINNER" | "INTERMEDIATE" | "ADVANCE" | "ALL_LEVELS";
 
 export type MediaType = "IMAGE" | "VIDEO" | "PDF" | "DOCUMENT" | "FILE" | "RAW";
 

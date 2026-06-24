@@ -72,8 +72,81 @@ function flattenLessons(course: PreviewCourse | null): FlatLesson[] {
   );
 }
 
+function isYoutubeUrl(url: string) {
+  try {
+    const parsedUrl = new URL(url);
+    const hostname = parsedUrl.hostname.replace("www.", "");
+
+    return (
+      hostname === "youtube.com" ||
+      hostname === "m.youtube.com" ||
+      hostname === "youtu.be" ||
+      hostname === "youtube-nocookie.com"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function getYoutubeEmbedUrl(url: string) {
+  try {
+    const parsedUrl = new URL(url);
+    const hostname = parsedUrl.hostname.replace("www.", "");
+
+    let videoId = "";
+
+    if (hostname === "youtu.be") {
+      videoId = parsedUrl.pathname.replace("/", "");
+    }
+
+    if (
+      hostname === "youtube.com" ||
+      hostname === "m.youtube.com" ||
+      hostname === "youtube-nocookie.com"
+    ) {
+      if (parsedUrl.pathname === "/watch") {
+        videoId = parsedUrl.searchParams.get("v") || "";
+      }
+
+      if (parsedUrl.pathname.startsWith("/embed/")) {
+        videoId = parsedUrl.pathname.replace("/embed/", "");
+      }
+
+      if (parsedUrl.pathname.startsWith("/shorts/")) {
+        videoId = parsedUrl.pathname.replace("/shorts/", "");
+      }
+    }
+
+    if (!videoId) return null;
+
+    const start = parsedUrl.searchParams.get("start") || parsedUrl.searchParams.get("t");
+
+    let startSeconds = "";
+
+    if (start) {
+      const match = start.match(/^(\d+)s?$/);
+      if (match) startSeconds = match[1];
+    }
+
+    const embedUrl = new URL(`https://www.youtube.com/embed/${videoId}`);
+
+    if (startSeconds) {
+      embedUrl.searchParams.set("start", startSeconds);
+    }
+
+    return embedUrl.toString();
+  } catch {
+    return null;
+  }
+}
+
 function getPrimaryFile(lesson: PreviewLesson | null) {
   if (!lesson?.files?.length) return null;
+
+  const youtubeVideo = lesson.files.find(
+    (file) => file.type === "VIDEO" && isYoutubeUrl(file.url)
+  );
+  if (youtubeVideo) return youtubeVideo;
 
   const video = lesson.files.find((file) => file.type === "VIDEO");
   if (video) return video;
@@ -110,6 +183,22 @@ function renderLearningFile(file: PreviewFile | null) {
   }
 
   if (file.type === "VIDEO") {
+    const youtubeEmbedUrl = getYoutubeEmbedUrl(file.url);
+
+    if (youtubeEmbedUrl) {
+      return (
+        <div className="overflow-hidden rounded-2xl border bg-black shadow-sm">
+          <iframe
+            src={youtubeEmbedUrl}
+            title={file.filename || "YouTube video"}
+            className="aspect-video w-full bg-black"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen
+          />
+        </div>
+      );
+    }
+
     return (
       <div className="overflow-hidden rounded-2xl border bg-black shadow-sm">
         <video src={file.url} controls className="aspect-video w-full bg-black" />
@@ -169,6 +258,12 @@ function renderLearningFile(file: PreviewFile | null) {
       </a>
     </div>
   );
+}
+
+function getFileTypeLabel(file: PreviewFile | null) {
+  if (!file) return "No media";
+  if (file.type === "VIDEO" && isYoutubeUrl(file.url)) return "YOUTUBE";
+  return file.type || "FILE";
 }
 
 function LessonSidebar({
@@ -242,7 +337,7 @@ function LessonSidebar({
                           {primaryFile ? (
                             <>
                               {renderFileIcon(primaryFile.type)}
-                              <span>{primaryFile.type}</span>
+                              <span>{getFileTypeLabel(primaryFile)}</span>
                             </>
                           ) : (
                             <>
@@ -412,7 +507,7 @@ export default function CoursePreviewViewer({
           {selectedFile && (
             <span className="inline-flex items-center gap-2 rounded-full bg-zinc-100 px-3 py-1.5 text-xs font-semibold text-zinc-700">
               {renderFileIcon(selectedFile.type)}
-              {selectedFile.type}
+              {getFileTypeLabel(selectedFile)}
             </span>
           )}
         </div>
@@ -499,7 +594,7 @@ export default function CoursePreviewViewer({
                       active ? "text-zinc-200" : "text-zinc-500"
                     }`}
                   >
-                    {file.type}
+                    {getFileTypeLabel(file)}
                   </span>
                 </a>
               );

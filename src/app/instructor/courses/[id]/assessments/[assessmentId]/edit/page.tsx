@@ -3,8 +3,11 @@
 import React, { use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { CheckCircle2, XCircle } from "lucide-react";
 import { assessmentService } from "@/services/assessment.service";
 import type {
+  AssessmentReviewContent,
+  AssessmentReviewTiming,
   AssessmentType,
   DetailedAssessment,
   UpdateAssessmentPayload,
@@ -17,6 +20,17 @@ type PageProps = {
     assessmentId: string;
   }>;
 };
+
+
+type AssessmentFormPayload = UpdateAssessmentPayload & {
+  reviewTiming?: AssessmentReviewTiming;
+  reviewContent?: AssessmentReviewContent;
+};
+
+type SuccessModal = {
+  message: string;
+  redirectTo?: string;
+} | null;
 
 function toDatetimeLocalValue(value?: string | Date | null) {
   if (!value) return "";
@@ -58,6 +72,10 @@ function getErrorMessage(err: unknown, fallback: string) {
     return (err as any).response.data.message.join(", ");
   }
 
+  if (err instanceof Error) {
+    return err.message;
+  }
+
   return fallback;
 }
 
@@ -66,13 +84,18 @@ export default function EditAssessmentPage({ params }: PageProps) {
   const router = useRouter();
 
   const [assessment, setAssessment] = useState<DetailedAssessment | null>(null);
-  const [form, setForm] = useState<UpdateAssessmentPayload>({});
-  const [initialForm, setInitialForm] = useState<UpdateAssessmentPayload>({});
+  const [form, setForm] = useState<AssessmentFormPayload>({});
+  const [initialForm, setInitialForm] = useState<AssessmentFormPayload>({});
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
+
   const [showCancelModal, setShowCancelModal] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [errorModalMessage, setErrorModalMessage] = useState<string | null>(
+    null
+  );
+  const [successModal, setSuccessModal] = useState<SuccessModal>(null);
 
   const isPublished = assessment?.status === "PUBLISHED";
 
@@ -80,17 +103,47 @@ export default function EditAssessmentPage({ params }: PageProps) {
     return JSON.stringify(form) !== JSON.stringify(initialForm);
   }, [form, initialForm]);
 
+  function showError(message: string) {
+    setSuccessModal(null);
+    setErrorModalMessage(message);
+  }
+
+  function showSuccess(message: string, redirectTo?: string) {
+    setErrorModalMessage(null);
+    setSuccessModal({
+      message,
+      redirectTo,
+    });
+  }
+
+  function closeSuccessModal() {
+    const redirectTo = successModal?.redirectTo;
+
+    setSuccessModal(null);
+
+    if (redirectTo) {
+      router.push(redirectTo);
+    }
+  }
+
   async function loadAssessment() {
     try {
       setLoading(true);
-      setError(null);
+      setErrorModalMessage(null);
 
       const data = await assessmentService.getInstructorAssessmentDetail(
         courseId,
         assessmentId
       );
 
-      const nextForm: UpdateAssessmentPayload = {
+      const dataLike = data as DetailedAssessment & {
+        reviewTiming?: AssessmentReviewTiming;
+        reviewContent?: AssessmentReviewContent;
+        assessmentReviewTiming?: AssessmentReviewTiming;
+        assessmentReviewContent?: AssessmentReviewContent;
+      };
+
+      const nextForm: AssessmentFormPayload = {
         title: data.title,
         description: data.description || "",
         type: data.type,
@@ -101,13 +154,21 @@ export default function EditAssessmentPage({ params }: PageProps) {
         availableFrom: toDatetimeLocalValue(data.availableFrom),
         availableUntil: toDatetimeLocalValue(data.availableUntil),
         isActive: data.isActive,
+        reviewTiming:
+          dataLike.assessmentReviewTiming ??
+          dataLike.reviewTiming ??
+          "AFTER_GRADED",
+        reviewContent:
+          dataLike.assessmentReviewContent ??
+          dataLike.reviewContent ??
+          "SCORE_ONLY",
       };
 
       setAssessment(data);
       setForm(nextForm);
       setInitialForm(nextForm);
     } catch (err) {
-      setError(getErrorMessage(err, "Could not load assessment."));
+      showError(getErrorMessage(err, "Could not load assessment."));
     } finally {
       setLoading(false);
     }
@@ -117,9 +178,9 @@ export default function EditAssessmentPage({ params }: PageProps) {
     loadAssessment();
   }, [courseId, assessmentId]);
 
-  function update<K extends keyof UpdateAssessmentPayload>(
+  function update<K extends keyof AssessmentFormPayload>(
     key: K,
-    value: UpdateAssessmentPayload[K]
+    value: AssessmentFormPayload[K]
   ) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
@@ -143,12 +204,14 @@ export default function EditAssessmentPage({ params }: PageProps) {
 
     try {
       setPublishing(true);
-      setError(null);
+      setErrorModalMessage(null);
 
       await assessmentService.publishAssessment(courseId, assessmentId);
       await loadAssessment();
+
+      showSuccess("Assessment published successfully.");
     } catch (err) {
-      setError(getErrorMessage(err, "Could not publish assessment."));
+      showError(getErrorMessage(err, "Could not publish assessment."));
     } finally {
       setPublishing(false);
     }
@@ -159,35 +222,25 @@ export default function EditAssessmentPage({ params }: PageProps) {
 
     try {
       setSaving(true);
-      setError(null);
-
-      const commonPayload: UpdateAssessmentPayload = {
-        ...form,
-        title: form.title?.trim(),
-        description: form.description?.trim() || undefined,
-        passingScore:
-          form.passingScore === null || form.passingScore === undefined
-            ? undefined
-            : Number(form.passingScore),
-        maxAttempts:
-          form.maxAttempts === null || form.maxAttempts === undefined
-            ? undefined
-            : Number(form.maxAttempts),
-        timeLimitMinutes:
-          form.type === "QUIZ"
-            ? Number(form.timeLimitMinutes || 0) || undefined
-            : undefined,
-        availableFrom: toIsoOrNull(form.availableFrom as string | undefined),
-        availableUntil: toIsoOrNull(form.availableUntil as string | undefined),
-      };
+      setErrorModalMessage(null);
 
       if (isPublished) {
         const publishedPayload: UpdatePublishedAssessmentPayload = {
-          availableFrom: commonPayload.availableFrom ?? undefined,
-          availableUntil: commonPayload.availableUntil ?? undefined,
-          maxAttempts: commonPayload.maxAttempts ?? undefined,
-          timeLimitMinutes: commonPayload.timeLimitMinutes ?? undefined,
-          isActive: commonPayload.isActive,
+          availableFrom:
+            toIsoOrNull(form.availableFrom as string | undefined) ?? undefined,
+          availableUntil:
+            toIsoOrNull(form.availableUntil as string | undefined) ?? undefined,
+          maxAttempts:
+            form.maxAttempts === null || form.maxAttempts === undefined
+              ? undefined
+              : Number(form.maxAttempts),
+          timeLimitMinutes:
+            form.type === "QUIZ"
+              ? Number(form.timeLimitMinutes || 0) || undefined
+              : undefined,
+          isActive: form.isActive,
+          assessmentReviewTiming: form.reviewTiming ?? "AFTER_GRADED",
+          assessmentReviewContent: form.reviewContent ?? "SCORE_ONLY",
         };
 
         await assessmentService.updatePublishedAssessment(
@@ -195,17 +248,58 @@ export default function EditAssessmentPage({ params }: PageProps) {
           assessmentId,
           publishedPayload
         );
+
+        setInitialForm({
+          ...form,
+          availableFrom: form.availableFrom,
+          availableUntil: form.availableUntil,
+          maxAttempts: publishedPayload.maxAttempts,
+          timeLimitMinutes: publishedPayload.timeLimitMinutes,
+          isActive: publishedPayload.isActive,
+          reviewTiming: form.reviewTiming ?? "AFTER_GRADED",
+          reviewContent: form.reviewContent ?? "SCORE_ONLY",
+        });
       } else {
+        const draftPayload: UpdateAssessmentPayload = {
+          title: form.title?.trim(),
+          description: form.description?.trim() || undefined,
+          type: form.type,
+          order: form.order,
+          passingScore:
+            form.passingScore === null || form.passingScore === undefined
+              ? undefined
+              : Number(form.passingScore),
+          maxAttempts:
+            form.maxAttempts === null || form.maxAttempts === undefined
+              ? undefined
+              : Number(form.maxAttempts),
+          timeLimitMinutes:
+            form.type === "QUIZ"
+              ? Number(form.timeLimitMinutes || 0) || undefined
+              : undefined,
+          availableFrom: toIsoOrNull(form.availableFrom as string | undefined),
+          availableUntil: toIsoOrNull(form.availableUntil as string | undefined),
+          isActive: form.isActive,
+        };
+
         await assessmentService.updateAssessment(
           courseId,
           assessmentId,
-          commonPayload
+          draftPayload
         );
+
+        setInitialForm({
+          ...form,
+          ...draftPayload,
+        });
       }
 
-      router.push(`/instructor/courses/${courseId}/assessments`);
+      showSuccess(
+        "Assessment updated successfully.",
+        `/instructor/courses/${courseId}/assessments`
+      );
     } catch (err) {
-      setError(getErrorMessage(err, "Could not save assessment."));
+      showError(getErrorMessage(err, "Could not save assessment."));
     } finally {
       setSaving(false);
     }
@@ -225,12 +319,45 @@ export default function EditAssessmentPage({ params }: PageProps) {
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
           Assessment not found.
         </div>
+
         <Link
           href={`/instructor/courses/${courseId}/assessments`}
           className="inline-flex rounded-lg border px-4 py-2 text-sm dark:border-zinc-700"
         >
           Back to assessments
         </Link>
+
+        {errorModalMessage && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+            <div className="w-full max-w-md rounded-2xl border bg-white p-6 shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100 dark:bg-red-950/50">
+                  <XCircle className="h-5 w-5 text-red-700 dark:text-red-300" />
+                </div>
+
+                <div>
+                  <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+                    Something went wrong
+                  </h2>
+
+                  <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-600 dark:text-zinc-300">
+                    {errorModalMessage}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-6 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setErrorModalMessage(null)}
+                  className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white dark:bg-white dark:text-zinc-900"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -243,7 +370,7 @@ export default function EditAssessmentPage({ params }: PageProps) {
           <h1 className="text-2xl font-bold">Edit assessment</h1>
           <p className="mt-1 text-sm text-zinc-500">
             {isPublished
-              ? "This assessment is published. You can only update safe settings such as availability, attempts, time limit, and active status."
+              ? "This assessment is published. You can only update safe settings such as availability, attempts, time limit, review settings, and active status."
               : "Update draft content, questions, answer keys, and assessment settings."}
           </p>
         </div>
@@ -268,12 +395,6 @@ export default function EditAssessmentPage({ params }: PageProps) {
           )}
         </div>
       </div>
-
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
-          {error}
-        </div>
-      )}
 
       <form
         onSubmit={handleSubmit}
@@ -391,6 +512,50 @@ export default function EditAssessmentPage({ params }: PageProps) {
             </div>
           )}
 
+          {isPublished && (
+            <>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Review timing</label>
+                <select
+                  value={form.reviewTiming ?? "AFTER_GRADED"}
+                  onChange={(e) =>
+                    update(
+                      "reviewTiming",
+                      e.target.value as AssessmentReviewTiming
+                    )
+                  }
+                  className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
+                >
+                  <option value="AFTER_GRADED">After graded</option>
+                  <option value="AFTER_SUBMISSION">After submission</option>
+                </select>
+                <p className="text-xs text-zinc-500">
+                  Controls when learners can see their review.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Review content</label>
+                <select
+                  value={form.reviewContent ?? "SCORE_ONLY"}
+                  onChange={(e) =>
+                    update(
+                      "reviewContent",
+                      e.target.value as AssessmentReviewContent
+                    )
+                  }
+                  className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
+                >
+                  <option value="SCORE_ONLY">Score only</option>
+                  <option value="SCORE_AND_ANSWERS">Score and answers</option>
+                </select>
+                <p className="text-xs text-zinc-500">
+                  Controls what learners can see after review is available.
+                </p>
+              </div>
+            </>
+          )}
+
           <div className="space-y-2">
             <label className="text-sm font-medium">Available from</label>
             <input
@@ -415,14 +580,17 @@ export default function EditAssessmentPage({ params }: PageProps) {
             />
           </div>
 
-          <label className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm dark:border-zinc-700">
-            <input
-              type="checkbox"
-              checked={Boolean(form.isActive)}
-              onChange={(e) => update("isActive", e.target.checked)}
-            />
-            Active
-          </label>
+          <div className="md:col-span-2">
+            <label className="inline-flex w-fit items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs font-medium dark:border-zinc-700">
+              <input
+                type="checkbox"
+                checked={Boolean(form.isActive)}
+                onChange={(e) => update("isActive", e.target.checked)}
+                className="h-3.5 w-3.5"
+              />
+              Active
+            </label>
+          </div>
         </div>
 
         <div className="flex justify-end gap-2">
@@ -467,6 +635,70 @@ export default function EditAssessmentPage({ params }: PageProps) {
                 className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
               >
                 Discard
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {errorModalMessage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-md rounded-2xl border bg-white p-6 shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100 dark:bg-red-950/50">
+                <XCircle className="h-5 w-5 text-red-700 dark:text-red-300" />
+              </div>
+
+              <div>
+                <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+                  Something went wrong
+                </h2>
+
+                <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-600 dark:text-zinc-300">
+                  {errorModalMessage}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setErrorModalMessage(null)}
+                className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white dark:bg-white dark:text-zinc-900"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {successModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-md rounded-2xl border bg-white p-6 shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-950/50">
+                <CheckCircle2 className="h-5 w-5 text-emerald-700 dark:text-emerald-300" />
+              </div>
+
+              <div>
+                <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+                  Success
+                </h2>
+
+                <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-600 dark:text-zinc-300">
+                  {successModal.message}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={closeSuccessModal}
+                className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white dark:bg-white dark:text-zinc-900"
+              >
+                Close
               </button>
             </div>
           </div>

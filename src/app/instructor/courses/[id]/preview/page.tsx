@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Send } from "lucide-react";
+import { CheckCircle2, Send, XCircle } from "lucide-react";
 
 import CoursePreviewViewer from "@/components/course-preview/CoursePreviewViewer";
 import type { PreviewCourse } from "@/components/course-preview/CoursePreviewViewer";
@@ -16,6 +16,37 @@ import type {
   InstructorCourse,
   Section,
 } from "@/services/instructor-course.service";
+
+type SuccessModal = {
+  message: string;
+  redirectTo?: string;
+} | null;
+
+function getErrorMessage(err: unknown, fallback: string) {
+  if (
+    typeof err === "object" &&
+    err !== null &&
+    "response" in err &&
+    typeof (err as any).response?.data?.message === "string"
+  ) {
+    return (err as any).response.data.message;
+  }
+
+  if (
+    typeof err === "object" &&
+    err !== null &&
+    "response" in err &&
+    Array.isArray((err as any).response?.data?.message)
+  ) {
+    return (err as any).response.data.message.join(", ");
+  }
+
+  if (err instanceof Error) {
+    return err.message;
+  }
+
+  return fallback;
+}
 
 function normalizeInstructorCourse(
   course: InstructorCourse,
@@ -59,12 +90,40 @@ export default function InstructorCoursePreviewPage() {
   const [course, setCourse] = useState<PreviewCourse | null>(null);
   const [loading, setLoading] = useState(false);
   const [submittingReview, setSubmittingReview] = useState(false);
-  const [error, setError] = useState("");
+
+  const [showSubmitReviewModal, setShowSubmitReviewModal] = useState(false);
+  const [errorModalMessage, setErrorModalMessage] = useState<string | null>(
+    null
+  );
+  const [successModal, setSuccessModal] = useState<SuccessModal>(null);
+
+  function showError(message: string) {
+    setSuccessModal(null);
+    setErrorModalMessage(message);
+  }
+
+  function showSuccess(message: string, redirectTo?: string) {
+    setErrorModalMessage(null);
+    setSuccessModal({
+      message,
+      redirectTo,
+    });
+  }
+
+  function closeSuccessModal() {
+    const redirectTo = successModal?.redirectTo;
+
+    setSuccessModal(null);
+
+    if (redirectTo) {
+      router.replace(redirectTo);
+    }
+  }
 
   async function fetchPreviewCourse() {
     try {
       setLoading(true);
-      setError("");
+      setErrorModalMessage(null);
 
       const courseResponse = await instructorCourseService.getMyCourses({
         page: 1,
@@ -116,33 +175,32 @@ export default function InstructorCoursePreviewPage() {
       );
 
       setCourse(normalizeInstructorCourse(currentCourse, sectionsWithLessons));
-    } catch (err: any) {
-      setError(
-        err?.response?.data?.message ||
-          err?.message ||
-          "Failed to load course preview."
-      );
+    } catch (err) {
+      showError(getErrorMessage(err, "Failed to load course preview."));
     } finally {
       setLoading(false);
     }
   }
 
-  async function handleSubmitForReview() {
-    const confirmed = window.confirm(
-      "Submit this course for review? You may not be able to edit it after submitting."
-    );
+  function handleSubmitForReview() {
+    setShowSubmitReviewModal(true);
+  }
 
-    if (!confirmed) return;
-
+  async function confirmSubmitForReview() {
     try {
       setSubmittingReview(true);
-      setError("");
+      setErrorModalMessage(null);
+      setSuccessModal(null);
 
       await instructorCourseService.submitForReview(courseId);
 
-      router.replace("/instructor/courses");
-    } catch (err: any) {
-      setError(err?.response?.data?.message || "Failed to submit for review.");
+      setShowSubmitReviewModal(false);
+      showSuccess(
+        "Course submitted for review successfully.",
+        "/instructor/courses"
+      );
+    } catch (err) {
+      showError(getErrorMessage(err, "Failed to submit for review."));
     } finally {
       setSubmittingReview(false);
     }
@@ -160,11 +218,11 @@ export default function InstructorCoursePreviewPage() {
     );
   }
 
-  if (error) {
+  if (!course) {
     return (
       <main className="space-y-4">
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {Array.isArray(error) ? error.join(", ") : error}
+        <div className="rounded-xl border border-dashed px-4 py-8 text-center text-sm text-zinc-500">
+          Course preview not found.
         </div>
 
         <button
@@ -174,34 +232,174 @@ export default function InstructorCoursePreviewPage() {
         >
           Back to Edit
         </button>
-      </main>
-    );
-  }
 
-  if (!course) {
-    return (
-      <main className="flex min-h-[60vh] items-center justify-center">
-        <p className="text-sm text-zinc-500">Course preview not found.</p>
+        {errorModalMessage && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+            <div className="w-full max-w-md rounded-2xl border bg-white p-6 shadow-xl">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100">
+                  <XCircle className="h-5 w-5 text-red-700" />
+                </div>
+
+                <div>
+                  <h2 className="text-lg font-semibold text-zinc-900">
+                    Something went wrong
+                  </h2>
+
+                  <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-600">
+                    {errorModalMessage}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-6 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setErrorModalMessage(null)}
+                  className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     );
   }
 
   return (
-    <CoursePreviewViewer
-      course={course}
-      backLabel="Back to Edit Course"
-      onBack={() => router.push(`/instructor/courses/${courseId}/edit`)}
-      rightAction={
-        <button
-          type="button"
-          onClick={handleSubmitForReview}
-          disabled={submittingReview}
-          className="inline-flex items-center rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          <Send className="mr-2 h-4 w-4" />
-          {submittingReview ? "Submitting..." : "Submit for Review"}
-        </button>
-      }
-    />
+    <>
+      <CoursePreviewViewer
+        course={course}
+        backLabel="Back to Edit Course"
+        onBack={() => router.push(`/instructor/courses/${courseId}/edit`)}
+        rightAction={
+          <button
+            type="button"
+            onClick={handleSubmitForReview}
+            disabled={submittingReview}
+            className="inline-flex items-center rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <Send className="mr-2 h-4 w-4" />
+            {submittingReview ? "Submitting..." : "Submit for Review"}
+          </button>
+        }
+      />
+
+      {showSubmitReviewModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-md rounded-2xl border bg-white p-6 shadow-xl">
+            <h2 className="text-lg font-semibold text-zinc-900">
+              Submit course for review?
+            </h2>
+
+            <p className="mt-2 text-sm text-zinc-500">
+              After submitting, this course will be sent to reviewers. You may
+              not be able to edit it while it is under review.
+            </p>
+
+            <div className="mt-4 rounded-lg border bg-zinc-50 p-3 text-sm">
+              <p className="font-medium text-zinc-900">
+                {course.title || "Untitled course"}
+              </p>
+
+              <p className="mt-1 text-xs text-zinc-500">
+                Lessons:{" "}
+                {course.sections?.reduce(
+                  (total, section) => total + (section.lessons?.length ?? 0),
+                  0
+                ) ?? 0}
+              </p>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowSubmitReviewModal(false)}
+                disabled={submittingReview}
+                className="rounded-lg border px-4 py-2 text-sm hover:bg-zinc-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={confirmSubmitForReview}
+                disabled={submittingReview}
+                className="inline-flex items-center rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
+              >
+                <Send className="mr-2 h-4 w-4" />
+                {submittingReview ? "Submitting..." : "Submit"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {errorModalMessage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-md rounded-2xl border bg-white p-6 shadow-xl">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100">
+                <XCircle className="h-5 w-5 text-red-700" />
+              </div>
+
+              <div>
+                <h2 className="text-lg font-semibold text-zinc-900">
+                  Something went wrong
+                </h2>
+
+                <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-600">
+                  {errorModalMessage}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setErrorModalMessage(null)}
+                className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {successModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-md rounded-2xl border bg-white p-6 shadow-xl">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100">
+                <CheckCircle2 className="h-5 w-5 text-emerald-700" />
+              </div>
+
+              <div>
+                <h2 className="text-lg font-semibold text-zinc-900">
+                  Success
+                </h2>
+
+                <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-600">
+                  {successModal.message}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={closeSuccessModal}
+                className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white"
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
