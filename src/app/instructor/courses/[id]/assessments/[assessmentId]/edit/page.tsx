@@ -21,7 +21,6 @@ type PageProps = {
   }>;
 };
 
-
 type AssessmentFormPayload = UpdateAssessmentPayload & {
   reviewTiming?: AssessmentReviewTiming;
   reviewContent?: AssessmentReviewContent;
@@ -137,10 +136,10 @@ export default function EditAssessmentPage({ params }: PageProps) {
       );
 
       const dataLike = data as DetailedAssessment & {
-        reviewTiming?: AssessmentReviewTiming;
-        reviewContent?: AssessmentReviewContent;
-        assessmentReviewTiming?: AssessmentReviewTiming;
-        assessmentReviewContent?: AssessmentReviewContent;
+        reviewTiming?: AssessmentReviewTiming | null;
+        reviewContent?: AssessmentReviewContent | null;
+        assessmentReviewTiming?: AssessmentReviewTiming | null;
+        assessmentReviewContent?: AssessmentReviewContent | null;
       };
 
       const nextForm: AssessmentFormPayload = {
@@ -155,12 +154,12 @@ export default function EditAssessmentPage({ params }: PageProps) {
         availableUntil: toDatetimeLocalValue(data.availableUntil),
         isActive: data.isActive,
         reviewTiming:
-          dataLike.assessmentReviewTiming ??
           dataLike.reviewTiming ??
+          dataLike.assessmentReviewTiming ??
           "AFTER_GRADED",
         reviewContent:
-          dataLike.assessmentReviewContent ??
           dataLike.reviewContent ??
+          dataLike.assessmentReviewContent ??
           "SCORE_ONLY",
       };
 
@@ -238,9 +237,9 @@ export default function EditAssessmentPage({ params }: PageProps) {
             form.type === "QUIZ"
               ? Number(form.timeLimitMinutes || 0) || undefined
               : undefined,
-          isActive: form.isActive,
           assessmentReviewTiming: form.reviewTiming ?? "AFTER_GRADED",
           assessmentReviewContent: form.reviewContent ?? "SCORE_ONLY",
+          isActive: form.isActive,
         };
 
         await assessmentService.updatePublishedAssessment(
@@ -459,9 +458,9 @@ export default function EditAssessmentPage({ params }: PageProps) {
           <div className="space-y-2">
             <label className="text-sm font-medium">Passing score (%)</label>
             <input
+              disabled={isPublished}
               type="number"
               min={0}
-              max={100}
               value={form.passingScore ?? ""}
               onChange={(e) =>
                 update(
@@ -469,7 +468,7 @@ export default function EditAssessmentPage({ params }: PageProps) {
                   e.target.value ? Number(e.target.value) : undefined
                 )
               }
-              className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
+              className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-zinc-500 disabled:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:disabled:bg-zinc-900"
               placeholder="Example: 70"
             />
           </div>
@@ -526,8 +525,11 @@ export default function EditAssessmentPage({ params }: PageProps) {
                   }
                   className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
                 >
+                  <option value="NEVER">Never show review</option>
+                  <option value="AFTER_SUBMIT">After submit</option>
                   <option value="AFTER_GRADED">After graded</option>
-                  <option value="AFTER_SUBMISSION">After submission</option>
+                  <option value="AFTER_ASSESSMENT_CLOSED">After assessment closed</option>
+                  <option value="MANUAL">Manual release</option>
                 </select>
                 <p className="text-xs text-zinc-500">
                   Controls when learners can see their review.
@@ -548,6 +550,7 @@ export default function EditAssessmentPage({ params }: PageProps) {
                 >
                   <option value="SCORE_ONLY">Score only</option>
                   <option value="SCORE_AND_ANSWERS">Score and answers</option>
+                  <option value="FULL_REVIEW">Full review</option>
                 </select>
                 <p className="text-xs text-zinc-500">
                   Controls what learners can see after review is available.
