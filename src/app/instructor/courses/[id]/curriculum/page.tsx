@@ -326,9 +326,11 @@ async function uploadFileToCloudinary(
 function SortableSectionCard({
   section,
   children,
+  disabled,
 }: {
   section: Section;
   children: ReactNode;
+  disabled: boolean;
 }) {
   const {
     attributes,
@@ -349,10 +351,19 @@ function SortableSectionCard({
         <div className="flex items-center gap-3 border-b border-zinc-200 bg-zinc-100 px-4 py-2">
           <button
             type="button"
-            {...attributes}
-            {...listeners}
-            className="inline-flex cursor-grab items-center justify-center rounded-md border bg-white p-1.5 text-zinc-500 transition hover:bg-zinc-50 active:cursor-grabbing"
-            title="Drag to reorder section"
+            {...(!disabled ? attributes : {})}
+            {...(!disabled ? listeners : {})}
+            disabled={disabled}
+            className={`inline-flex items-center justify-center rounded-md border bg-white p-1.5 text-zinc-500 transition ${
+              disabled
+                ? "cursor-not-allowed opacity-50"
+                : "cursor-grab hover:bg-zinc-50 active:cursor-grabbing"
+            }`}
+            title={
+              disabled
+                ? "Course is locked and cannot be reordered"
+                : "Drag to reorder section"
+            }
           >
             <GripVertical className="h-4 w-4" />
           </button>
@@ -496,10 +507,31 @@ export default function CourseCurriculumPage() {
     lesson: Lesson;
   } | null>(null);
 
-  const canEditDraft = (() => {
+  const canEditCourse = (() => {
     const status = course?.status?.toUpperCase();
-    return !status || status === "DRAFT" || status === "NEEDS_CHANGES";
+
+    return (
+      !status ||
+      [
+        "DRAFT",
+        "CHANGES_REQUESTED",
+        "REJECTED",
+        "NEEDS_CHANGES",
+        "NEEDS_REVISION",
+        "REVISION_REQUIRED",
+      ].includes(status)
+    );
   })();
+
+  const lockedMessage =
+    "This course is locked because it is under review, approved, or published.";
+
+  function ensureCourseEditable() {
+    if (canEditCourse) return true;
+
+    showError(lockedMessage);
+    return false;
+  }
 
   function getMediaLinkForm(lessonId: string): LessonMediaLinkForm {
     return mediaLinkForms[lessonId] ?? getDefaultMediaLinkForm();
@@ -649,6 +681,8 @@ export default function CourseCurriculumPage() {
   async function handleCreateSection(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
+    if (!ensureCourseEditable()) return;
+
     try {
       setCreatingSection(true);
       setError("");
@@ -671,12 +705,16 @@ export default function CourseCurriculumPage() {
   }
 
   function startEditSection(section: Section) {
+    if (!ensureCourseEditable()) return;
+
     setEditingSectionId(section.id);
     setEditSectionTitle(section.title);
     setEditSectionDescription(section.description ?? "");
   }
 
   async function handleUpdateSection(sectionId: string) {
+    if (!ensureCourseEditable()) return;
+
     try {
       setError("");
       setSuccessMessage("");
@@ -695,11 +733,14 @@ export default function CourseCurriculumPage() {
   }
 
   function handleDeleteSection(section: Section) {
+    if (!ensureCourseEditable()) return;
+
     setSectionToDelete(section);
   }
 
   async function confirmDeleteSection() {
     if (!sectionToDelete) return;
+    if (!ensureCourseEditable()) return;
 
     try {
       setError("");
@@ -716,6 +757,8 @@ export default function CourseCurriculumPage() {
   }
 
   async function handleToggleSection(section: Section) {
+    if (!ensureCourseEditable()) return;
+
     try {
       setError("");
       setSuccessMessage("");
@@ -740,6 +783,7 @@ export default function CourseCurriculumPage() {
   async function handleCreateLesson(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!lessonFormSectionId) return;
+    if (!ensureCourseEditable()) return;
 
     try {
       setError("");
@@ -761,12 +805,16 @@ export default function CourseCurriculumPage() {
   }
 
   function startEditLesson(lesson: Lesson) {
+    if (!ensureCourseEditable()) return;
+
     setEditingLessonId(lesson.id);
     setEditLessonTitle(lesson.title);
     setEditLessonDescription(lesson.description ?? "");
   }
 
   async function handleUpdateLesson(sectionId: string, lessonId: string) {
+    if (!ensureCourseEditable()) return;
+
     try {
       setError("");
       setSuccessMessage("");
@@ -785,6 +833,8 @@ export default function CourseCurriculumPage() {
   }
 
   function handleDeleteLesson(sectionId: string, lesson: Lesson) {
+    if (!ensureCourseEditable()) return;
+
     setLessonToDelete({
       sectionId,
       lesson,
@@ -793,6 +843,7 @@ export default function CourseCurriculumPage() {
 
   async function confirmDeleteLesson() {
     if (!lessonToDelete) return;
+    if (!ensureCourseEditable()) return;
 
     try {
       setError("");
@@ -813,6 +864,8 @@ export default function CourseCurriculumPage() {
   }
 
   async function handleToggleLesson(sectionId: string, lesson: Lesson) {
+    if (!ensureCourseEditable()) return;
+
     try {
       setError("");
       setSuccessMessage("");
@@ -833,6 +886,8 @@ export default function CourseCurriculumPage() {
   }
 
   async function handleSectionDragEnd(event: DragEndEvent) {
+    if (!ensureCourseEditable()) return;
+
     const { active, over } = event;
 
     if (!over || active.id === over.id) return;
@@ -864,6 +919,8 @@ export default function CourseCurriculumPage() {
     lessonId: string,
     direction: "up" | "down"
   ) {
+    if (!ensureCourseEditable()) return;
+
     const section = sections.find((item) => item.id === sectionId);
     if (!section?.lessons) return;
 
@@ -905,6 +962,8 @@ export default function CourseCurriculumPage() {
   }
 
   async function handleAttachLessonMediaUrl(sectionId: string, lesson: Lesson) {
+    if (!ensureCourseEditable()) return;
+
     const form = getMediaLinkForm(lesson.id);
     const url = form.url.trim();
 
@@ -961,6 +1020,8 @@ export default function CourseCurriculumPage() {
   }
 
   function handleSelectLessonFile(sectionId: string, lesson: Lesson, file: File) {
+    if (!ensureCourseEditable()) return;
+
     const mediaType = getMediaTypeFromFile(file);
     const previewUrl =
       mediaType === "IMAGE" || mediaType === "VIDEO"
@@ -993,6 +1054,7 @@ export default function CourseCurriculumPage() {
 
   async function handleConfirmUploadLessonFile() {
     if (!pendingUpload) return;
+    if (!ensureCourseEditable()) return;
 
     const { sectionId, lesson, file, mediaType } = pendingUpload;
 
@@ -1067,6 +1129,8 @@ export default function CourseCurriculumPage() {
     lessonId: string,
     file: LessonFileMedia
   ) {
+    if (!ensureCourseEditable()) return;
+
     setEditingFile({
       sectionId,
       lessonId,
@@ -1103,6 +1167,7 @@ export default function CourseCurriculumPage() {
 
   async function handleUpdateFileMedia() {
     if (!editingFile) return;
+    if (!ensureCourseEditable()) return;
 
     if (!editingFile.form.url.trim()) {
       showError("File URL is required.");
@@ -1160,6 +1225,7 @@ export default function CourseCurriculumPage() {
 
   async function confirmDeleteFileMedia() {
     if (!fileToDelete) return;
+    if (!ensureCourseEditable()) return;
 
     try {
       setDeletingFile(true);
@@ -1317,6 +1383,13 @@ export default function CourseCurriculumPage() {
         </Card>
       </div>
 
+      {course && !canEditCourse && (
+        <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {lockedMessage} You can view the curriculum, but editing, uploading,
+          deleting, and reordering are disabled.
+        </div>
+      )}
+
       {error && (
         <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {error}
@@ -1339,7 +1412,7 @@ export default function CourseCurriculumPage() {
               placeholder="Section title"
               required
               maxLength={255}
-              disabled={!canEditDraft}
+              disabled={!canEditCourse}
             />
 
             <div>
@@ -1348,7 +1421,7 @@ export default function CourseCurriculumPage() {
                 onChange={(event) => setSectionDescription(event.target.value)}
                 placeholder="Section description"
                 maxLength={255}
-                disabled={!canEditDraft}
+                disabled={!canEditCourse}
               />
 
               <p className="mt-1 text-xs text-muted-foreground">
@@ -1356,7 +1429,7 @@ export default function CourseCurriculumPage() {
               </p>
             </div>
 
-            <Button type="submit" disabled={creatingSection || !canEditDraft}>
+            <Button type="submit" disabled={creatingSection || !canEditCourse}>
               <PlusCircle className="mr-2 h-4 w-4" />
               {creatingSection ? "Creating..." : "Add Section"}
             </Button>
@@ -1387,7 +1460,11 @@ export default function CourseCurriculumPage() {
           >
             <div className="space-y-5">
               {sections.map((section, sectionIndex) => (
-                <SortableSectionCard key={section.id} section={section}>
+                <SortableSectionCard
+                  key={section.id}
+                  section={section}
+                  disabled={!canEditCourse}
+                >
                   <CardHeader>
                     {editingSectionId === section.id ? (
                       <div className="space-y-3">
@@ -1396,7 +1473,7 @@ export default function CourseCurriculumPage() {
                           onChange={(event) =>
                             setEditSectionTitle(event.target.value)
                           }
-                          disabled={!canEditDraft}
+                          disabled={!canEditCourse}
                           maxLength={255}
                         />
 
@@ -1406,7 +1483,7 @@ export default function CourseCurriculumPage() {
                             onChange={(event) =>
                               setEditSectionDescription(event.target.value)
                             }
-                            disabled={!canEditDraft}
+                            disabled={!canEditCourse}
                             maxLength={255}
                           />
 
@@ -1420,7 +1497,7 @@ export default function CourseCurriculumPage() {
                             size="sm"
                             type="button"
                             onClick={() => handleUpdateSection(section.id)}
-                            disabled={!canEditDraft}
+                            disabled={!canEditCourse}
                           >
                             <Save className="mr-2 h-4 w-4" />
                             Save
@@ -1467,7 +1544,7 @@ export default function CourseCurriculumPage() {
                             type="button"
                             variant="outline"
                             onClick={() => handleToggleSection(section)}
-                            disabled={!canEditDraft}
+                            disabled={!canEditCourse}
                           >
                             {section.isActive ? "Disable" : "Enable"}
                           </Button>
@@ -1477,7 +1554,7 @@ export default function CourseCurriculumPage() {
                             type="button"
                             variant="outline"
                             onClick={() => startEditSection(section)}
-                            disabled={!canEditDraft}
+                            disabled={!canEditCourse}
                           >
                             <Edit className="mr-2 h-4 w-4" />
                             Edit
@@ -1488,7 +1565,7 @@ export default function CourseCurriculumPage() {
                             type="button"
                             variant="destructive"
                             onClick={() => handleDeleteSection(section)}
-                            disabled={!canEditDraft}
+                            disabled={!canEditCourse}
                           >
                             <Trash2 className="mr-2 h-4 w-4" />
                             Delete
@@ -1517,7 +1594,7 @@ export default function CourseCurriculumPage() {
                                       onChange={(event) =>
                                         setEditLessonTitle(event.target.value)
                                       }
-                                      disabled={!canEditDraft}
+                                      disabled={!canEditCourse}
                                       maxLength={255}
                                     />
 
@@ -1528,7 +1605,7 @@ export default function CourseCurriculumPage() {
                                           event.target.value
                                         )
                                       }
-                                      disabled={!canEditDraft}
+                                      disabled={!canEditCourse}
                                       maxLength={2000}
                                     />
 
@@ -1542,7 +1619,7 @@ export default function CourseCurriculumPage() {
                                             lesson.id
                                           )
                                         }
-                                        disabled={!canEditDraft}
+                                        disabled={!canEditCourse}
                                       >
                                         Save
                                       </Button>
@@ -1597,7 +1674,7 @@ export default function CourseCurriculumPage() {
                                           type="button"
                                           variant="outline"
                                           disabled={
-                                            lessonIndex === 0 || !canEditDraft
+                                            lessonIndex === 0 || !canEditCourse
                                           }
                                           onClick={() =>
                                             moveLesson(
@@ -1617,7 +1694,7 @@ export default function CourseCurriculumPage() {
                                           disabled={
                                             lessonIndex ===
                                               (section.lessons?.length ?? 0) -
-                                                1 || !canEditDraft
+                                                1 || !canEditCourse
                                           }
                                           onClick={() =>
                                             moveLesson(
@@ -1640,7 +1717,7 @@ export default function CourseCurriculumPage() {
                                               lesson
                                             )
                                           }
-                                          disabled={!canEditDraft}
+                                          disabled={!canEditCourse}
                                         >
                                           {lesson.isActive
                                             ? "Disable"
@@ -1652,7 +1729,7 @@ export default function CourseCurriculumPage() {
                                           type="button"
                                           variant="outline"
                                           onClick={() => startEditLesson(lesson)}
-                                          disabled={!canEditDraft}
+                                          disabled={!canEditCourse}
                                         >
                                           Edit
                                         </Button>
@@ -1667,7 +1744,7 @@ export default function CourseCurriculumPage() {
                                               lesson
                                             )
                                           }
-                                          disabled={!canEditDraft}
+                                          disabled={!canEditCourse}
                                         >
                                           Delete
                                         </Button>
@@ -1719,7 +1796,7 @@ export default function CourseCurriculumPage() {
                                               type="file"
                                               className="hidden"
                                               disabled={
-                                                !canEditDraft ||
+                                                !canEditCourse ||
                                                 uploading?.lessonId ===
                                                   lesson.id
                                               }
@@ -1745,7 +1822,7 @@ export default function CourseCurriculumPage() {
                                       <MediaLinkForm
                                         lessonId={lesson.id}
                                         sectionId={section.id}
-                                        disabled={!canEditDraft}
+                                        disabled={!canEditCourse}
                                         saving={
                                           savingMediaLinkLessonId === lesson.id
                                         }
@@ -1831,7 +1908,7 @@ export default function CourseCurriculumPage() {
                                                         file
                                                       )
                                                     }
-                                                    disabled={!canEditDraft}
+                                                    disabled={!canEditCourse}
                                                   >
                                                     <Edit className="mr-2 h-4 w-4" />
                                                     Edit
@@ -1848,7 +1925,7 @@ export default function CourseCurriculumPage() {
                                                         file,
                                                       })
                                                     }
-                                                    disabled={!canEditDraft}
+                                                    disabled={!canEditCourse}
                                                   >
                                                     <Trash2 className="mr-2 h-4 w-4" />
                                                     Delete
@@ -1891,7 +1968,7 @@ export default function CourseCurriculumPage() {
                           required
                           minLength={3}
                           maxLength={255}
-                          disabled={!canEditDraft}
+                          disabled={!canEditCourse}
                         />
 
                         <Textarea
@@ -1901,14 +1978,14 @@ export default function CourseCurriculumPage() {
                           }
                           placeholder="Lesson description"
                           maxLength={2000}
-                          disabled={!canEditDraft}
+                          disabled={!canEditCourse}
                         />
 
                         <div className="flex gap-2">
                           <Button
                             type="submit"
                             size="sm"
-                            disabled={!canEditDraft}
+                            disabled={!canEditCourse}
                           >
                             Add Lesson
                           </Button>
@@ -1933,7 +2010,7 @@ export default function CourseCurriculumPage() {
                         type="button"
                         variant="outline"
                         onClick={() => setLessonFormSectionId(section.id)}
-                        disabled={!canEditDraft}
+                        disabled={!canEditCourse}
                       >
                         <PlusCircle className="mr-2 h-4 w-4" />
                         Add Lesson
@@ -2078,7 +2155,7 @@ export default function CourseCurriculumPage() {
               <Button
                 type="button"
                 onClick={handleUpdateFileMedia}
-                disabled={savingFileEdit}
+                disabled={savingFileEdit || !canEditCourse}
               >
                 {savingFileEdit ? "Saving..." : "Save changes"}
               </Button>
@@ -2122,7 +2199,7 @@ export default function CourseCurriculumPage() {
                 type="button"
                 variant="destructive"
                 onClick={confirmDeleteFileMedia}
-                disabled={deletingFile}
+                disabled={deletingFile || !canEditCourse}
               >
                 <Trash2 className="mr-2 h-4 w-4" />
                 {deletingFile ? "Deleting..." : "Delete Media"}
@@ -2230,7 +2307,7 @@ export default function CourseCurriculumPage() {
               <Button
                 type="button"
                 onClick={handleConfirmUploadLessonFile}
-                disabled={Boolean(uploading)}
+                disabled={Boolean(uploading) || !canEditCourse}
               >
                 {uploading ? "Uploading..." : "Confirm Upload"}
               </Button>
@@ -2274,6 +2351,7 @@ export default function CourseCurriculumPage() {
                 type="button"
                 variant="destructive"
                 onClick={confirmDeleteSection}
+                disabled={!canEditCourse}
               >
                 <Trash2 className="mr-2 h-4 w-4" />
                 Delete Section
@@ -2318,6 +2396,7 @@ export default function CourseCurriculumPage() {
                 type="button"
                 variant="destructive"
                 onClick={confirmDeleteLesson}
+                disabled={!canEditCourse}
               >
                 <Trash2 className="mr-2 h-4 w-4" />
                 Delete Lesson

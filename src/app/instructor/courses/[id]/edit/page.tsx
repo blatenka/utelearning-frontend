@@ -38,7 +38,48 @@ import type {
   UploadSignatureResponse,
 } from "@/services/instructor-course.service";
 
-const courseLevels: CourseLevel[] = ["BEGINNER", "INTERMEDIATE", "ADVANCE", "ALL_LEVELS"];
+const courseLevels: CourseLevel[] = [
+  "BEGINNER",
+  "INTERMEDIATE",
+  "ADVANCE",
+  "ALL_LEVELS",
+];
+
+const editableCourseStatuses = [
+  "DRAFT",
+  "CHANGES_REQUESTED",
+  "REJECTED",
+  "NEEDS_CHANGES",
+  "NEEDS_REVISION",
+  "REVISION_REQUIRED",
+];
+
+function normalizeCourseStatus(status?: string | null) {
+  return String(status || "").toUpperCase();
+}
+
+function isCourseEditable(status?: string | null) {
+  const normalizedStatus = normalizeCourseStatus(status);
+
+  return !normalizedStatus || editableCourseStatuses.includes(normalizedStatus);
+}
+
+function getLockedCourseMessage(status?: string | null) {
+  const normalizedStatus = normalizeCourseStatus(status) || "UNKNOWN";
+
+  if (
+    normalizedStatus === "PENDING_REVIEW" ||
+    normalizedStatus === "SUBMITTED_FOR_REVIEW"
+  ) {
+    return "This course is under review. You cannot edit course information until the review is finished.";
+  }
+
+  if (normalizedStatus === "APPROVED" || normalizedStatus === "PUBLISHED") {
+    return "This course has already been approved or published. Direct editing is locked.";
+  }
+
+  return `This course cannot be edited in the current status: ${normalizedStatus}.`;
+}
 
 type Category = {
   id: string;
@@ -62,7 +103,7 @@ type PendingThumbnail = {
 
 function buildCategoryOptions(
   categories: Category[],
-  depth = 0
+  depth = 0,
 ): CategoryOption[] {
   return categories.flatMap((category) => {
     const children = category.children || [];
@@ -205,7 +246,7 @@ async function getImageSize(file: File): Promise<{
 
 async function uploadImageToCloudinary(
   file: File,
-  signature: UploadSignatureResponse
+  signature: UploadSignatureResponse,
 ) {
   const formData = new FormData();
 
@@ -227,7 +268,7 @@ async function uploadImageToCloudinary(
     {
       method: "POST",
       body: formData,
-    }
+    },
   );
 
   if (!response.ok) {
@@ -258,7 +299,7 @@ export default function InstructorCourseEditPage() {
   const [showSubmitReviewModal, setShowSubmitReviewModal] = useState(false);
   const [showDeleteDraftModal, setShowDeleteDraftModal] = useState(false);
   const [errorModalMessage, setErrorModalMessage] = useState<string | null>(
-    null
+    null,
   );
 
   const [successMessage, setSuccessMessage] = useState("");
@@ -285,11 +326,15 @@ export default function InstructorCourseEditPage() {
     return categoryOptions.find((category) => category.id === categoryId);
   }, [categoryOptions, categoryId]);
 
-  const canEditDraft = useMemo(() => {
-    const status = course?.status?.toUpperCase();
-
-    return !status || status === "DRAFT" || status === "NEEDS_CHANGES";
+  const canEditCourse = useMemo(() => {
+    return isCourseEditable(course?.status);
   }, [course?.status]);
+
+  const lockedCourseMessage = useMemo(() => {
+    if (!course || canEditCourse) return "";
+
+    return getLockedCourseMessage(course.status);
+  }, [course, canEditCourse]);
 
   const thumbnailIsGoodSize = useMemo(() => {
     if (!pendingThumbnail) return false;
@@ -301,6 +346,15 @@ export default function InstructorCourseEditPage() {
     setErrorModalMessage(message);
   }
 
+  function ensureCourseEditable() {
+    if (canEditCourse) return true;
+
+    showError(
+      lockedCourseMessage || "This course is locked and cannot be edited.",
+    );
+    return false;
+  }
+
   function fillCourseForm(currentCourse: InstructorCourse) {
     setTitle(currentCourse.title ?? "");
     setShortDescription(currentCourse.shortDescription ?? "");
@@ -309,7 +363,9 @@ export default function InstructorCourseEditPage() {
     setRequirements(arrayToLines(currentCourse.requirements));
     setLevel(currentCourse.level ?? "BEGINNER");
     setPrice(
-      typeof currentCourse.price === "number" ? String(currentCourse.price) : ""
+      typeof currentCourse.price === "number"
+        ? String(currentCourse.price)
+        : "",
     );
     setLanguage(currentCourse.language ?? "");
     setCertificateEnabled(Boolean(currentCourse.certificateEnabled));
@@ -360,6 +416,8 @@ export default function InstructorCourseEditPage() {
   }
 
   async function handleSelectThumbnail(file: File) {
+    if (!ensureCourseEditable()) return;
+
     setSuccessMessage("");
 
     if (!file.type.startsWith("image/")) {
@@ -400,6 +458,7 @@ export default function InstructorCourseEditPage() {
 
   async function handleConfirmUploadThumbnail() {
     if (!pendingThumbnail) return;
+    if (!ensureCourseEditable()) return;
 
     try {
       setUploadingThumbnail(true);
@@ -417,7 +476,7 @@ export default function InstructorCourseEditPage() {
 
       const cloudinaryResult = await uploadImageToCloudinary(
         pendingThumbnail.file,
-        signature
+        signature,
       );
 
       setThumbnailUrl(cloudinaryResult.secure_url);
@@ -428,7 +487,7 @@ export default function InstructorCourseEditPage() {
 
       setPendingThumbnail(null);
       setSuccessMessage(
-        "Thumbnail uploaded. Click Save Course to store it in our system."
+        "Thumbnail uploaded. Click Save Course to store it in our system.",
       );
     } catch (err) {
       showError(getErrorMessage(err, "Failed to upload thumbnail."));
@@ -439,6 +498,8 @@ export default function InstructorCourseEditPage() {
 
   async function handleSaveCourse(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (!ensureCourseEditable()) return;
 
     if (!categoryId) {
       showError("Please choose a category.");
@@ -475,7 +536,7 @@ export default function InstructorCourseEditPage() {
 
       const response = await instructorCourseService.updateCourse(
         courseId,
-        payload
+        payload,
       );
 
       const updatedCourse = unwrapData<InstructorCourse>(response);
@@ -496,10 +557,14 @@ export default function InstructorCourseEditPage() {
   }
 
   function handleSubmitForReview() {
+    if (!ensureCourseEditable()) return;
+
     setShowSubmitReviewModal(true);
   }
 
   async function confirmSubmitForReview() {
+    if (!ensureCourseEditable()) return;
+
     try {
       setSubmittingReview(true);
       setSuccessMessage("");
@@ -517,10 +582,14 @@ export default function InstructorCourseEditPage() {
   }
 
   function handleDeleteDraft() {
+    if (!ensureCourseEditable()) return;
+
     setShowDeleteDraftModal(true);
   }
 
   async function confirmDeleteDraft() {
+    if (!ensureCourseEditable()) return;
+
     try {
       setDeletingDraft(true);
 
@@ -609,7 +678,7 @@ export default function InstructorCourseEditPage() {
             type="button"
             variant="outline"
             onClick={handleSubmitForReview}
-            disabled={!course || submittingReview || !canEditDraft}
+            disabled={!course || submittingReview || !canEditCourse}
           >
             <Send className="mr-2 h-4 w-4" />
             {submittingReview ? "Submitting..." : "Submit for Review"}
@@ -619,7 +688,7 @@ export default function InstructorCourseEditPage() {
             type="button"
             variant="destructive"
             onClick={handleDeleteDraft}
-            disabled={!course || deletingDraft || !canEditDraft}
+            disabled={!course || deletingDraft || !canEditCourse}
           >
             <Trash2 className="mr-2 h-4 w-4" />
             {deletingDraft ? "Deleting..." : "Delete Draft"}
@@ -631,6 +700,13 @@ export default function InstructorCourseEditPage() {
         <div className="mb-4 flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
           <CheckCircle2 className="mr-2 h-4 w-4" />
           {successMessage}
+        </div>
+      )}
+
+      {course && !canEditCourse && (
+        <div className="mb-4 rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
+          <p className="font-medium">Course editing is locked</p>
+          <p className="mt-1">{lockedCourseMessage}</p>
         </div>
       )}
 
@@ -658,7 +734,7 @@ export default function InstructorCourseEditPage() {
                     minLength={3}
                     maxLength={255}
                     required
-                    disabled={!canEditDraft}
+                    disabled={!canEditCourse}
                   />
                 </div>
 
@@ -674,7 +750,7 @@ export default function InstructorCourseEditPage() {
                     minLength={10}
                     maxLength={500}
                     required
-                    disabled={!canEditDraft}
+                    disabled={!canEditCourse}
                   />
                 </div>
 
@@ -687,7 +763,7 @@ export default function InstructorCourseEditPage() {
                     onChange={(event) => setDescription(event.target.value)}
                     maxLength={10000}
                     rows={5}
-                    disabled={!canEditDraft}
+                    disabled={!canEditCourse}
                   />
                 </div>
 
@@ -701,7 +777,7 @@ export default function InstructorCourseEditPage() {
                       onChange={(event) =>
                         setLevel(event.target.value as CourseLevel)
                       }
-                      disabled={!canEditDraft}
+                      disabled={!canEditCourse}
                       className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                     >
                       {courseLevels.map((item) => (
@@ -719,7 +795,7 @@ export default function InstructorCourseEditPage() {
                     <select
                       value={categoryId}
                       onChange={(event) => setCategoryId(event.target.value)}
-                      disabled={!canEditDraft || categoryLoading}
+                      disabled={!canEditCourse || categoryLoading}
                       required
                       className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                     >
@@ -756,7 +832,7 @@ export default function InstructorCourseEditPage() {
                       step="10000"
                       value={price}
                       onChange={(event) => setPrice(event.target.value)}
-                      disabled={!canEditDraft}
+                      disabled={!canEditCourse}
                       placeholder="100000"
                     />
                     <p className="mt-1 text-xs text-zinc-500">
@@ -773,7 +849,7 @@ export default function InstructorCourseEditPage() {
                       onChange={(event) => setLanguage(event.target.value)}
                       placeholder="English, Vietnamese..."
                       maxLength={50}
-                      disabled={!canEditDraft}
+                      disabled={!canEditCourse}
                     />
                   </div>
                 </div>
@@ -785,7 +861,7 @@ export default function InstructorCourseEditPage() {
                     onChange={(event) =>
                       setCertificateEnabled(event.target.checked)
                     }
-                    disabled={!canEditDraft}
+                    disabled={!canEditCourse}
                   />
                   Certificate enabled
                 </label>
@@ -801,7 +877,7 @@ export default function InstructorCourseEditPage() {
                     }
                     placeholder="One item per line"
                     rows={5}
-                    disabled={!canEditDraft}
+                    disabled={!canEditCourse}
                   />
                 </div>
 
@@ -814,13 +890,13 @@ export default function InstructorCourseEditPage() {
                     onChange={(event) => setRequirements(event.target.value)}
                     placeholder="One item per line"
                     rows={4}
-                    disabled={!canEditDraft}
+                    disabled={!canEditCourse}
                   />
                 </div>
 
                 <Button
                   type="submit"
-                  disabled={savingCourse || !canEditDraft}
+                  disabled={savingCourse || !canEditCourse}
                   className="w-full"
                 >
                   <Save className="mr-2 h-4 w-4" />
@@ -865,7 +941,7 @@ export default function InstructorCourseEditPage() {
                       type="file"
                       accept="image/jpeg,image/png,image/webp,image/jpg"
                       className="hidden"
-                      disabled={!canEditDraft || uploadingThumbnail}
+                      disabled={!canEditCourse || uploadingThumbnail}
                       onChange={(event) => {
                         const file = event.target.files?.[0];
 
@@ -879,9 +955,7 @@ export default function InstructorCourseEditPage() {
                   </label>
 
                   <div className="rounded-lg border bg-zinc-50 p-3 text-xs text-zinc-600">
-                    <p className="font-medium text-zinc-800">
-                      Thumbnail guide
-                    </p>
+                    <p className="font-medium text-zinc-800">Thumbnail guide</p>
                     <ul className="mt-2 list-disc space-y-1 pl-4">
                       <li>Use 16:9 image for best display.</li>
                       <li>Recommended: 1280x720px.</li>
@@ -1017,7 +1091,7 @@ export default function InstructorCourseEditPage() {
                   <p>
                     {getAspectRatioText(
                       pendingThumbnail.width,
-                      pendingThumbnail.height
+                      pendingThumbnail.height,
                     )}
                   </p>
                 </div>
@@ -1056,7 +1130,7 @@ export default function InstructorCourseEditPage() {
               <Button
                 type="button"
                 onClick={handleConfirmUploadThumbnail}
-                disabled={uploadingThumbnail}
+                disabled={uploadingThumbnail || !canEditCourse}
               >
                 {uploadingThumbnail ? "Uploading..." : "Confirm Upload"}
               </Button>
@@ -1099,7 +1173,7 @@ export default function InstructorCourseEditPage() {
               <Button
                 type="button"
                 onClick={confirmSubmitForReview}
-                disabled={submittingReview}
+                disabled={submittingReview || !canEditCourse}
               >
                 <Send className="mr-2 h-4 w-4" />
                 {submittingReview ? "Submitting..." : "Submit for Review"}
@@ -1144,7 +1218,7 @@ export default function InstructorCourseEditPage() {
                 type="button"
                 variant="destructive"
                 onClick={confirmDeleteDraft}
-                disabled={deletingDraft}
+                disabled={deletingDraft || !canEditCourse}
               >
                 <Trash2 className="mr-2 h-4 w-4" />
                 {deletingDraft ? "Deleting..." : "Delete Draft"}
@@ -1166,10 +1240,7 @@ export default function InstructorCourseEditPage() {
             </p>
 
             <div className="mt-6 flex justify-end">
-              <Button
-                type="button"
-                onClick={() => setErrorModalMessage(null)}
-              >
+              <Button type="button" onClick={() => setErrorModalMessage(null)}>
                 Close
               </Button>
             </div>
