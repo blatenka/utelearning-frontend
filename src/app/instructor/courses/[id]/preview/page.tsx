@@ -5,7 +5,10 @@ import { useParams, useRouter } from "next/navigation";
 import { CheckCircle2, Send, XCircle } from "lucide-react";
 
 import CoursePreviewViewer from "@/components/course-preview/CoursePreviewViewer";
-import type { PreviewCourse } from "@/components/course-preview/CoursePreviewViewer";
+import type {
+  PreviewCourse,
+  PreviewFile,
+} from "@/components/course-preview/CoursePreviewViewer";
 
 import {
   instructorCourseService,
@@ -14,6 +17,8 @@ import {
 
 import type {
   InstructorCourse,
+  Lesson,
+  LessonFileMedia,
   Section,
 } from "@/services/instructor-course.service";
 
@@ -48,6 +53,45 @@ function getErrorMessage(err: unknown, fallback: string) {
   return fallback;
 }
 
+function normalizeFileMedia(file: any): PreviewFile | null {
+  const url =
+    file?.url ??
+    file?.fileUrl ??
+    file?.mediaUrl ??
+    file?.secureUrl ??
+    file?.resourceUrl ??
+    "";
+
+  if (!url) return null;
+
+  return {
+    id: file.id ?? file.fileMediaId ?? file.mediaId ?? url,
+    url,
+    type: file.type ?? file.mediaType ?? file.resourceType ?? "OTHER",
+    filename:
+      file.filename ??
+      file.fileName ??
+      file.originalFilename ??
+      file.originalName ??
+      file.name ??
+      null,
+    mimeType: file.mimeType ?? file.mimetype ?? file.contentType ?? null,
+    sizeInBytes:
+      file.sizeInBytes ??
+      file.size ??
+      file.bytes ??
+      null,
+  };
+}
+
+function normalizeFileMediaList(rawFiles: any): PreviewFile[] {
+  if (!Array.isArray(rawFiles)) return [];
+
+  return rawFiles
+    .map((file) => normalizeFileMedia(file))
+    .filter(Boolean) as PreviewFile[];
+}
+
 function normalizeInstructorCourse(
   course: InstructorCourse,
   sections: Section[]
@@ -66,18 +110,24 @@ function normalizeInstructorCourse(
       title: section.title,
       description: section.description ?? null,
       isActive: section.isActive,
-      lessons: (section.lessons ?? []).map((lesson: any) => ({
-        id: lesson.id,
-        title: lesson.title,
-        description: lesson.description ?? null,
-        isActive: lesson.isActive,
-        files:
+      lessons: (section.lessons ?? []).map((lesson: any) => {
+        const rawFiles =
           lesson.files ??
           lesson.fileMedias ??
-          lesson.media ??
           lesson.lessonFiles ??
-          [],
-      })),
+          lesson.media ??
+          lesson.medias ??
+          lesson.resources ??
+          [];
+
+        return {
+          id: lesson.id,
+          title: lesson.title,
+          description: lesson.description ?? null,
+          isActive: lesson.isActive,
+          files: normalizeFileMediaList(rawFiles),
+        };
+      }),
     })),
   };
 }
@@ -117,6 +167,26 @@ export default function InstructorCoursePreviewPage() {
 
     if (redirectTo) {
       router.replace(redirectTo);
+    }
+  }
+
+  async function fetchLessonFiles(sectionId: string, lessonId: string) {
+    try {
+      const response = await instructorCourseService.getLessonFiles(
+        courseId,
+        sectionId,
+        lessonId,
+        {
+          page: 1,
+          limit: 100,
+          sortField: "createdAt",
+          sortDirection: "desc",
+        }
+      );
+
+      return unwrapList<LessonFileMedia>(response);
+    } catch {
+      return [];
     }
   }
 
@@ -161,9 +231,22 @@ export default function InstructorCoursePreviewPage() {
               }
             );
 
+            const lessons = unwrapList<Lesson>(lessonResponse);
+
+            const lessonsWithFiles = await Promise.all(
+              lessons.map(async (lesson) => {
+                const files = await fetchLessonFiles(section.id, lesson.id);
+
+                return {
+                  ...lesson,
+                  files,
+                };
+              })
+            );
+
             return {
               ...section,
-              lessons: unwrapList<any>(lessonResponse),
+              lessons: lessonsWithFiles,
             };
           } catch {
             return {

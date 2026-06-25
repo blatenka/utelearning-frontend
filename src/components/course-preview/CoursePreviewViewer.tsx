@@ -1,25 +1,28 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   BookOpen,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  ExternalLink,
   FileText,
   ImageIcon,
   ListVideo,
   LockKeyhole,
+  Music,
   PlayCircle,
 } from "lucide-react";
 
 export type PreviewFile = {
   id?: string;
   url: string;
-  type?: "IMAGE" | "VIDEO" | "RAW" | string;
+  type?: "IMAGE" | "VIDEO" | "DOCUMENT" | "AUDIO" | "OTHER" | "RAW" | string;
   filename?: string | null;
   mimeType?: string | null;
+  sizeInBytes?: number | null;
 };
 
 export type PreviewLesson = {
@@ -119,7 +122,8 @@ function getYoutubeEmbedUrl(url: string) {
 
     if (!videoId) return null;
 
-    const start = parsedUrl.searchParams.get("start") || parsedUrl.searchParams.get("t");
+    const start =
+      parsedUrl.searchParams.get("start") || parsedUrl.searchParams.get("t");
 
     let startSeconds = "";
 
@@ -154,13 +158,36 @@ function getPrimaryFile(lesson: PreviewLesson | null) {
   const image = lesson.files.find((file) => file.type === "IMAGE");
   if (image) return image;
 
+  const audio = lesson.files.find((file) => file.type === "AUDIO");
+  if (audio) return audio;
+
+  const document = lesson.files.find((file) => file.type === "DOCUMENT");
+  if (document) return document;
+
   return lesson.files[0];
 }
 
 function renderFileIcon(type?: string) {
   if (type === "VIDEO") return <PlayCircle className="h-4 w-4" />;
   if (type === "IMAGE") return <ImageIcon className="h-4 w-4" />;
+  if (type === "AUDIO") return <Music className="h-4 w-4" />;
   return <FileText className="h-4 w-4" />;
+}
+
+function formatFileSize(size?: number | null) {
+  if (size === undefined || size === null) return null;
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(2)} KB`;
+  return `${(size / 1024 / 1024).toFixed(2)} MB`;
+}
+
+function isPdfFile(file: PreviewFile) {
+  return (
+    file.type === "DOCUMENT" &&
+    (file.mimeType?.toLowerCase().includes("pdf") ||
+      file.filename?.toLowerCase().endsWith(".pdf") ||
+      file.url.toLowerCase().split("?")[0].endsWith(".pdf"))
+  );
 }
 
 function renderLearningFile(file: PreviewFile | null) {
@@ -176,7 +203,7 @@ function renderLearningFile(file: PreviewFile | null) {
         </h2>
 
         <p className="mt-2 max-w-md text-sm leading-6 text-zinc-500">
-          This lesson does not have video, image, or document files yet.
+          This lesson does not have video, image, audio, or document files yet.
         </p>
       </div>
     );
@@ -201,7 +228,11 @@ function renderLearningFile(file: PreviewFile | null) {
 
     return (
       <div className="overflow-hidden rounded-2xl border bg-black shadow-sm">
-        <video src={file.url} controls className="aspect-video w-full bg-black" />
+        <video
+          src={file.url}
+          controls
+          className="aspect-video w-full bg-black"
+        />
       </div>
     );
   }
@@ -218,11 +249,29 @@ function renderLearningFile(file: PreviewFile | null) {
     );
   }
 
-  const isPdf =
-    file.mimeType?.includes("pdf") ||
-    file.filename?.toLowerCase().endsWith(".pdf");
+  if (file.type === "AUDIO") {
+    return (
+      <div className="rounded-2xl border bg-white p-8 shadow-sm">
+        <div className="flex flex-col items-center text-center">
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-zinc-100">
+            <Music className="h-8 w-8 text-zinc-500" />
+          </div>
 
-  if (isPdf) {
+          <h2 className="mt-5 text-lg font-semibold text-zinc-900">
+            {file.filename || "Audio lesson"}
+          </h2>
+
+          <p className="mt-2 text-sm text-zinc-500">
+            Listen to the attached audio file.
+          </p>
+
+          <audio controls src={file.url} className="mt-6 w-full max-w-2xl" />
+        </div>
+      </div>
+    );
+  }
+
+  if (isPdfFile(file)) {
     return (
       <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
         <iframe
@@ -252,8 +301,9 @@ function renderLearningFile(file: PreviewFile | null) {
         href={file.url}
         target="_blank"
         rel="noreferrer"
-        className="mt-5 rounded-xl bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-700"
+        className="mt-5 inline-flex items-center rounded-xl bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-700"
       >
+        <ExternalLink className="mr-2 h-4 w-4" />
         Open file
       </a>
     </div>
@@ -263,7 +313,7 @@ function renderLearningFile(file: PreviewFile | null) {
 function getFileTypeLabel(file: PreviewFile | null) {
   if (!file) return "No media";
   if (file.type === "VIDEO" && isYoutubeUrl(file.url)) return "YOUTUBE";
-  return file.type || "FILE";
+  return file.type || "OTHER";
 }
 
 function LessonSidebar({
@@ -388,6 +438,16 @@ export default function CoursePreviewViewer({
     flatLessons[0]?.lesson ?? null
   );
 
+  const [selectedFile, setSelectedFile] = useState<PreviewFile | null>(
+    getPrimaryFile(flatLessons[0]?.lesson ?? null)
+  );
+
+  useEffect(() => {
+    const firstLesson = flatLessons[0]?.lesson ?? null;
+    setSelectedLesson(firstLesson);
+    setSelectedFile(getPrimaryFile(firstLesson));
+  }, [course.id, flatLessons.length]);
+
   const currentLessonIndex = useMemo(() => {
     if (!selectedLesson) return -1;
     return flatLessons.findIndex((item) => item.lesson.id === selectedLesson.id);
@@ -408,9 +468,10 @@ export default function CoursePreviewViewer({
     return flatLessons[currentLessonIndex + 1]?.lesson ?? null;
   }, [flatLessons, currentLessonIndex]);
 
-  const selectedFile = useMemo(() => {
-    return getPrimaryFile(selectedLesson);
-  }, [selectedLesson]);
+  function selectLesson(lesson: PreviewLesson) {
+    setSelectedLesson(lesson);
+    setSelectedFile(getPrimaryFile(lesson));
+  }
 
   return (
     <div className="space-y-8">
@@ -527,7 +588,7 @@ export default function CoursePreviewViewer({
             type="button"
             disabled={!previousLesson}
             onClick={() => {
-              if (previousLesson) setSelectedLesson(previousLesson);
+              if (previousLesson) selectLesson(previousLesson);
             }}
             className="inline-flex items-center justify-center rounded-xl border bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -539,7 +600,7 @@ export default function CoursePreviewViewer({
             type="button"
             disabled={!nextLesson}
             onClick={() => {
-              if (nextLesson) setSelectedLesson(nextLesson);
+              if (nextLesson) selectLesson(nextLesson);
             }}
             className="inline-flex items-center justify-center rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -552,7 +613,7 @@ export default function CoursePreviewViewer({
       <LessonSidebar
         sections={course.sections ?? []}
         selectedLessonId={selectedLesson?.id}
-        onSelectLesson={setSelectedLesson}
+        onSelectLesson={selectLesson}
       />
 
       {selectedLesson?.files?.length ? (
@@ -562,20 +623,21 @@ export default function CoursePreviewViewer({
           </h3>
 
           <p className="mt-1 text-sm text-zinc-500">
-            Files and documents attached to this lesson.
+            Click a resource to preview it above.
           </p>
 
           <div className="mt-4 grid gap-3">
             {selectedLesson.files.map((file) => {
-              const active = selectedFile?.id === file.id;
+              const active =
+                selectedFile?.id === file.id || selectedFile?.url === file.url;
+              const size = formatFileSize(file.sizeInBytes);
 
               return (
-                <a
+                <button
                   key={file.id || file.url}
-                  href={file.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className={`flex items-center justify-between rounded-xl border px-4 py-3 text-sm transition ${
+                  type="button"
+                  onClick={() => setSelectedFile(file)}
+                  className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left text-sm transition ${
                     active
                       ? "border-zinc-900 bg-zinc-900 text-white"
                       : "bg-zinc-50 hover:bg-zinc-100"
@@ -584,9 +646,21 @@ export default function CoursePreviewViewer({
                   <div className="flex min-w-0 items-center gap-3">
                     {renderFileIcon(file.type)}
 
-                    <span className="truncate font-medium">
-                      {file.filename || "Lesson file"}
-                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">
+                        {file.filename || "Lesson file"}
+                      </p>
+
+                      {size && (
+                        <p
+                          className={`mt-0.5 text-xs ${
+                            active ? "text-zinc-300" : "text-zinc-500"
+                          }`}
+                        >
+                          {size}
+                        </p>
+                      )}
+                    </div>
                   </div>
 
                   <span
@@ -596,7 +670,7 @@ export default function CoursePreviewViewer({
                   >
                     {getFileTypeLabel(file)}
                   </span>
-                </a>
+                </button>
               );
             })}
           </div>

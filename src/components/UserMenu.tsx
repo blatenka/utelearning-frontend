@@ -89,7 +89,7 @@ export default function UserMenu({ user }: { user: any }) {
           Profile
         </button>
 
-        {(isLearner || user) && (
+        {(isLearner) && (
           <button
             type="button"
             className="block w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm text-indigo-600 transition-colors hover:bg-zinc-100"

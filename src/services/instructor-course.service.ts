@@ -1,8 +1,12 @@
 import api from "@/lib/api";
 
-export type CourseLevel = "BEGINNER" | "INTERMEDIATE" | "ADVANCE" | "ALL_LEVELS";
+export type CourseLevel =
+  | "BEGINNER"
+  | "INTERMEDIATE"
+  | "ADVANCE"
+  | "ALL_LEVELS";
 
-export type MediaType = "IMAGE" | "VIDEO" | "PDF" | "DOCUMENT" | "FILE" | "RAW";
+export type MediaType = "IMAGE" | "VIDEO" | "DOCUMENT" | "AUDIO" | "OTHER";
 
 export type InstructorCourse = {
   id: string;
@@ -104,6 +108,23 @@ export type LessonQuery = {
   limit?: number;
 };
 
+export type FileMediaSortField =
+  | "filename"
+  | "type"
+  | "sizeInBytes"
+  | "createdAt"
+  | "updatedAt";
+
+export type FileMediaQuery = {
+  search?: string;
+  type?: MediaType;
+  mimeType?: string;
+  sortField?: FileMediaSortField;
+  sortDirection?: "asc" | "desc";
+  page?: number;
+  limit?: number;
+};
+
 export type CreateLessonFilePayload = {
   cloudinaryPublicId?: string | null;
   url: string;
@@ -112,6 +133,8 @@ export type CreateLessonFilePayload = {
   mimeType?: string | null;
   sizeInBytes?: number | null;
 };
+
+export type UpdateLessonFilePayload = Partial<CreateLessonFilePayload>;
 
 export type LessonFileMedia = {
   id: string;
@@ -188,7 +211,11 @@ export const instructorCourseService = {
     return api.post(`/v1/instructor/courses/${courseId}/sections`, payload);
   },
 
-  updateSection(courseId: string, sectionId: string, payload: UpdateSectionPayload) {
+  updateSection(
+    courseId: string,
+    sectionId: string,
+    payload: UpdateSectionPayload
+  ) {
     return api.patch(
       `/v1/instructor/courses/${courseId}/sections/${sectionId}`,
       payload
@@ -221,7 +248,11 @@ export const instructorCourseService = {
     );
   },
 
-  createLesson(courseId: string, sectionId: string, payload: CreateLessonPayload) {
+  createLesson(
+    courseId: string,
+    sectionId: string,
+    payload: CreateLessonPayload
+  ) {
     return api.post(
       `/v1/instructor/courses/${courseId}/sections/${sectionId}/lessons`,
       payload
@@ -262,6 +293,53 @@ export const instructorCourseService = {
     return api.post(
       `/v1/instructor/courses/${courseId}/sections/${sectionId}/lessons/${lessonId}/files`,
       payload
+    );
+  },
+
+  getLessonFiles(
+    courseId: string,
+    sectionId: string,
+    lessonId: string,
+    params?: FileMediaQuery
+  ) {
+    return api.get(
+      `/v1/instructor/courses/${courseId}/sections/${sectionId}/lessons/${lessonId}/files`,
+      { params }
+    );
+  },
+
+  getLessonFile(
+    courseId: string,
+    sectionId: string,
+    lessonId: string,
+    fileMediaId: string
+  ) {
+    return api.get(
+      `/v1/instructor/courses/${courseId}/sections/${sectionId}/lessons/${lessonId}/files/${fileMediaId}`
+    );
+  },
+
+  updateLessonFile(
+    courseId: string,
+    sectionId: string,
+    lessonId: string,
+    fileMediaId: string,
+    payload: UpdateLessonFilePayload
+  ) {
+    return api.patch(
+      `/v1/instructor/courses/${courseId}/sections/${sectionId}/lessons/${lessonId}/files/${fileMediaId}`,
+      payload
+    );
+  },
+
+  deleteLessonFile(
+    courseId: string,
+    sectionId: string,
+    lessonId: string,
+    fileMediaId: string
+  ) {
+    return api.delete(
+      `/v1/instructor/courses/${courseId}/sections/${sectionId}/lessons/${lessonId}/files/${fileMediaId}`
     );
   },
 

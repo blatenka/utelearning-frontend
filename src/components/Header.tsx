@@ -17,7 +17,7 @@ export default function Header() {
         </div>
         <div className="flex items-center gap-4">
           <Link href="/dashboard" className="px-4 py-2 rounded-md bg-zinc-100 text-sm font-medium hover:bg-zinc-200 transition-colors">
-            Dashboard
+            Home
           </Link>
           
           {loading ? (

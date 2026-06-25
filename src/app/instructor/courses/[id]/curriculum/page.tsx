@@ -7,17 +7,20 @@ import {
   ArrowLeft,
   CheckCircle2,
   Edit,
+  ExternalLink,
+  File,
+  FileText,
   FileUp,
+  Film,
   GripVertical,
+  Image as ImageIcon,
   LinkIcon,
+  Music,
   PlusCircle,
+  RefreshCw,
   Save,
   Trash2,
   X,
-  FileText,
-  Film,
-  Image as ImageIcon,
-  File,
 } from "lucide-react";
 
 import {
@@ -65,6 +68,8 @@ import type {
   UploadSignatureResponse,
 } from "@/services/instructor-course.service";
 
+type LessonMediaType = MediaType | "IMAGE" | "VIDEO" | "DOCUMENT" | "AUDIO" | "OTHER";
+
 type UploadingState = {
   lessonId: string;
   progressText: string;
@@ -75,13 +80,33 @@ type PendingUpload = {
   lesson: Lesson;
   file: File;
   previewUrl: string | null;
-  mediaType: MediaType;
+  mediaType: LessonMediaType;
 } | null;
 
 type LessonMediaLinkForm = {
   url: string;
   filename: string;
 };
+
+type LessonFileEditState = {
+  sectionId: string;
+  lessonId: string;
+  file: LessonFileMedia;
+  form: {
+    url: string;
+    filename: string;
+    type: LessonMediaType;
+    cloudinaryPublicId: string;
+    mimeType: string;
+    sizeInBytes: string;
+  };
+} | null;
+
+type LessonFileDeleteState = {
+  sectionId: string;
+  lessonId: string;
+  file: LessonFileMedia;
+} | null;
 
 function getDefaultMediaLinkForm(): LessonMediaLinkForm {
   return {
@@ -116,7 +141,7 @@ function getErrorMessage(err: unknown, fallback: string) {
   return fallback;
 }
 
-function getMediaTypeFromFile(file: File): MediaType {
+function getMediaTypeFromFile(file: File): LessonMediaType {
   const name = file.name.toLowerCase();
   const mime = file.type.toLowerCase();
 
@@ -128,12 +153,14 @@ function getMediaTypeFromFile(file: File): MediaType {
     return "VIDEO";
   }
 
-  if (mime === "application/pdf" || name.endsWith(".pdf")) {
-    return "PDF";
+  if (mime.startsWith("audio/") || /\.(mp3|wav|ogg|m4a|aac)$/.test(name)) {
+    return "AUDIO";
   }
 
   if (
-    /\.(doc|docx|ppt|pptx|xls|xlsx|odt|ods|odp)$/.test(name) ||
+    mime === "application/pdf" ||
+    name.endsWith(".pdf") ||
+    /\.(doc|docx|ppt|pptx|xls|xlsx|odt|ods|odp|txt|csv)$/.test(name) ||
     mime.includes("officedocument") ||
     mime.includes("msword") ||
     mime.includes("ms-excel") ||
@@ -142,7 +169,7 @@ function getMediaTypeFromFile(file: File): MediaType {
     return "DOCUMENT";
   }
 
-  return "FILE";
+  return "OTHER";
 }
 
 function isYoutubeUrl(url: string) {
@@ -161,30 +188,32 @@ function isYoutubeUrl(url: string) {
   }
 }
 
-function inferMediaTypeFromUrl(url: string): MediaType {
+function inferMediaTypeFromUrl(url: string): LessonMediaType {
   if (isYoutubeUrl(url)) return "VIDEO";
 
   const path = url.split("?")[0].toLowerCase();
 
   if (/\.(jpg|jpeg|png|webp|gif|svg)$/.test(path)) return "IMAGE";
   if (/\.(mp4|mov|webm|mkv|avi)$/.test(path)) return "VIDEO";
-  if (path.endsWith(".pdf")) return "PDF";
-  if (/\.(doc|docx|ppt|pptx|xls|xlsx)$/.test(path)) return "DOCUMENT";
+  if (/\.(mp3|wav|ogg|m4a|aac)$/.test(path)) return "AUDIO";
+  if (/\.(pdf|doc|docx|ppt|pptx|xls|xlsx|txt|csv)$/.test(path)) {
+    return "DOCUMENT";
+  }
 
-  return "FILE";
+  return "OTHER";
 }
 
 function getCloudinaryResourceType(
-  mediaType: MediaType
+  mediaType: LessonMediaType
 ): "image" | "video" | "raw" {
   if (mediaType === "IMAGE") return "image";
-  if (mediaType === "VIDEO") return "video";
+  if (mediaType === "VIDEO" || mediaType === "AUDIO") return "video";
   return "raw";
 }
 
-function MediaTypeBadge({ type }: { type: MediaType }) {
+function MediaTypeBadge({ type }: { type: LessonMediaType }) {
   const map: Record<
-    MediaType,
+    string,
     { label: string; icon: ReactNode; className: string }
   > = {
     IMAGE: {
@@ -197,29 +226,24 @@ function MediaTypeBadge({ type }: { type: MediaType }) {
       icon: <Film className="h-3 w-3" />,
       className: "bg-blue-100 text-blue-700",
     },
-    PDF: {
-      label: "PDF",
-      icon: <FileText className="h-3 w-3" />,
-      className: "bg-red-100 text-red-700",
+    AUDIO: {
+      label: "Audio",
+      icon: <Music className="h-3 w-3" />,
+      className: "bg-emerald-100 text-emerald-700",
     },
     DOCUMENT: {
       label: "Document",
       icon: <FileText className="h-3 w-3" />,
       className: "bg-amber-100 text-amber-700",
     },
-    FILE: {
-      label: "File",
-      icon: <File className="h-3 w-3" />,
-      className: "bg-zinc-100 text-zinc-600",
-    },
-    RAW: {
-      label: "File",
+    OTHER: {
+      label: "Other",
       icon: <File className="h-3 w-3" />,
       className: "bg-zinc-100 text-zinc-600",
     },
   };
 
-  const config = map[type] ?? map.FILE;
+  const config = map[String(type)] ?? map.OTHER;
 
   return (
     <span
@@ -255,7 +279,8 @@ function isValidUrl(value: string) {
   }
 }
 
-function formatFileSize(size: number) {
+function formatFileSize(size?: number | null) {
+  if (size === undefined || size === null) return "Unknown size";
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(2)} KB`;
   return `${(size / 1024 / 1024).toFixed(2)} MB`;
@@ -374,7 +399,7 @@ function MediaLinkForm({
         <Input
           value={form.url}
           onChange={(event) => onUpdate({ url: event.target.value })}
-          placeholder="Paste YouTube/watch, video, image, PDF, or document URL..."
+          placeholder="Paste YouTube/watch, video, image, audio, PDF, or document URL..."
           disabled={disabled || saving}
         />
 
@@ -403,11 +428,6 @@ function MediaLinkForm({
           {saving ? "Saving..." : "Add Link"}
         </Button>
       </div>
-
-      <p className="text-xs text-zinc-500">
-        YouTube/watch links are detected as video. Other types are detected from
-        the URL extension.
-      </p>
     </form>
   );
 }
@@ -437,6 +457,14 @@ export default function CourseCurriculumPage() {
     Record<string, LessonMediaLinkForm>
   >({});
   const [savingMediaLinkLessonId, setSavingMediaLinkLessonId] = useState<
+    string | null
+  >(null);
+
+  const [editingFile, setEditingFile] = useState<LessonFileEditState>(null);
+  const [savingFileEdit, setSavingFileEdit] = useState(false);
+  const [fileToDelete, setFileToDelete] = useState<LessonFileDeleteState>(null);
+  const [deletingFile, setDeletingFile] = useState(false);
+  const [refreshingLessonFilesId, setRefreshingLessonFilesId] = useState<
     string | null
   >(null);
 
@@ -518,6 +546,39 @@ export default function CourseCurriculumPage() {
     }
   }
 
+  async function fetchLessonFiles(sectionId: string, lessonId: string) {
+    const response = await instructorCourseService.getLessonFiles(
+      courseId,
+      sectionId,
+      lessonId,
+      {
+        page: 1,
+        limit: 100,
+        sortField: "createdAt",
+        sortDirection: "desc",
+      }
+    );
+
+    return unwrapList<LessonFileMedia>(response);
+  }
+
+  async function refreshLessonFiles(sectionId: string, lessonId: string) {
+    try {
+      setRefreshingLessonFilesId(lessonId);
+
+      const files = await fetchLessonFiles(sectionId, lessonId);
+
+      setUploadedFiles((prev) => ({
+        ...prev,
+        [lessonId]: files,
+      }));
+    } catch (err) {
+      showError(getErrorMessage(err, "Failed to load lesson media files."));
+    } finally {
+      setRefreshingLessonFilesId(null);
+    }
+  }
+
   async function fetchSectionsAndLessons(silent = false) {
     try {
       if (!silent) setLoading(true);
@@ -533,6 +594,7 @@ export default function CourseCurriculumPage() {
       );
 
       const sectionList = unwrapList<Section>(sectionResponse);
+      const nextUploadedFiles: Record<string, LessonFileMedia[]> = {};
 
       const sectionsWithLessons = await Promise.all(
         sectionList.map(async (section) => {
@@ -547,9 +609,24 @@ export default function CourseCurriculumPage() {
               }
             );
 
+            const lessons = unwrapList<Lesson>(lessonResponse);
+
+            await Promise.all(
+              lessons.map(async (lesson) => {
+                try {
+                  nextUploadedFiles[lesson.id] = await fetchLessonFiles(
+                    section.id,
+                    lesson.id
+                  );
+                } catch {
+                  nextUploadedFiles[lesson.id] = [];
+                }
+              })
+            );
+
             return {
               ...section,
-              lessons: unwrapList<Lesson>(lessonResponse),
+              lessons,
             };
           } catch {
             return {
@@ -561,6 +638,7 @@ export default function CourseCurriculumPage() {
       );
 
       setSections(sectionsWithLessons);
+      setUploadedFiles(nextUploadedFiles);
     } catch (err) {
       showError(getErrorMessage(err, "Failed to load curriculum."));
     } finally {
@@ -855,7 +933,7 @@ export default function CourseCurriculumPage() {
         {
           cloudinaryPublicId: null,
           url,
-          type,
+          type: type as MediaType,
           filename,
           mimeType: null,
           sizeInBytes: null,
@@ -866,7 +944,7 @@ export default function CourseCurriculumPage() {
 
       setUploadedFiles((prev) => ({
         ...prev,
-        [lesson.id]: [...(prev[lesson.id] ?? []), savedMedia],
+        [lesson.id]: [savedMedia, ...(prev[lesson.id] ?? [])],
       }));
 
       setMediaLinkForms((prev) => ({
@@ -957,7 +1035,7 @@ export default function CourseCurriculumPage() {
         {
           cloudinaryPublicId: cloudinaryResult.public_id ?? null,
           url: cloudinaryResult.secure_url,
-          type: mediaType,
+          type: mediaType as MediaType,
           filename: file.name,
           mimeType: file.type || null,
           sizeInBytes: file.size,
@@ -968,7 +1046,7 @@ export default function CourseCurriculumPage() {
 
       setUploadedFiles((prev) => ({
         ...prev,
-        [lesson.id]: [...(prev[lesson.id] ?? []), savedMedia],
+        [lesson.id]: [savedMedia, ...(prev[lesson.id] ?? [])],
       }));
 
       if (pendingUpload.previewUrl) {
@@ -981,6 +1059,133 @@ export default function CourseCurriculumPage() {
       showError(getErrorMessage(err, "Failed to upload lesson media."));
     } finally {
       setUploading(null);
+    }
+  }
+
+  function startEditFile(
+    sectionId: string,
+    lessonId: string,
+    file: LessonFileMedia
+  ) {
+    setEditingFile({
+      sectionId,
+      lessonId,
+      file,
+      form: {
+        url: file.url || "",
+        filename: file.filename || "",
+        type: file.type as LessonMediaType,
+        cloudinaryPublicId: file.cloudinaryPublicId || "",
+        mimeType: file.mimeType || "",
+        sizeInBytes:
+          file.sizeInBytes === undefined || file.sizeInBytes === null
+            ? ""
+            : String(file.sizeInBytes),
+      },
+    });
+  }
+
+  function updateEditingFileForm(
+    patch: Partial<NonNullable<LessonFileEditState>["form"]>
+  ) {
+    setEditingFile((prev) =>
+      prev
+        ? {
+            ...prev,
+            form: {
+              ...prev.form,
+              ...patch,
+            },
+          }
+        : prev
+    );
+  }
+
+  async function handleUpdateFileMedia() {
+    if (!editingFile) return;
+
+    if (!editingFile.form.url.trim()) {
+      showError("File URL is required.");
+      return;
+    }
+
+    if (!isValidUrl(editingFile.form.url.trim())) {
+      showError("File URL is invalid.");
+      return;
+    }
+
+    try {
+      setSavingFileEdit(true);
+      setError("");
+      setSuccessMessage("");
+
+      const payload = {
+        cloudinaryPublicId:
+          editingFile.form.cloudinaryPublicId.trim() || null,
+        url: editingFile.form.url.trim(),
+        type: editingFile.form.type as MediaType,
+        filename: editingFile.form.filename.trim() || null,
+        mimeType: editingFile.form.mimeType.trim() || null,
+        sizeInBytes:
+          editingFile.form.sizeInBytes.trim() === ""
+            ? null
+            : Number(editingFile.form.sizeInBytes),
+      };
+
+      const response = await instructorCourseService.updateLessonFile(
+        courseId,
+        editingFile.sectionId,
+        editingFile.lessonId,
+        editingFile.file.id,
+        payload
+      );
+
+      const updatedFile = unwrapData<LessonFileMedia>(response);
+
+      setUploadedFiles((prev) => ({
+        ...prev,
+        [editingFile.lessonId]: (prev[editingFile.lessonId] ?? []).map((file) =>
+          file.id === updatedFile.id ? updatedFile : file
+        ),
+      }));
+
+      setEditingFile(null);
+      showSuccess("Lesson media updated successfully.");
+    } catch (err) {
+      showError(getErrorMessage(err, "Failed to update lesson media."));
+    } finally {
+      setSavingFileEdit(false);
+    }
+  }
+
+  async function confirmDeleteFileMedia() {
+    if (!fileToDelete) return;
+
+    try {
+      setDeletingFile(true);
+      setError("");
+      setSuccessMessage("");
+
+      await instructorCourseService.deleteLessonFile(
+        courseId,
+        fileToDelete.sectionId,
+        fileToDelete.lessonId,
+        fileToDelete.file.id
+      );
+
+      setUploadedFiles((prev) => ({
+        ...prev,
+        [fileToDelete.lessonId]: (prev[fileToDelete.lessonId] ?? []).filter(
+          (file) => file.id !== fileToDelete.file.id
+        ),
+      }));
+
+      setFileToDelete(null);
+      showSuccess("Lesson media deleted successfully.");
+    } catch (err) {
+      showError(getErrorMessage(err, "Failed to delete lesson media."));
+    } finally {
+      setDeletingFile(false);
     }
   }
 
@@ -1241,7 +1446,9 @@ export default function CourseCurriculumPage() {
                             </CardTitle>
 
                             <Badge
-                              variant={section.isActive ? "default" : "secondary"}
+                              variant={
+                                section.isActive ? "default" : "secondary"
+                              }
                             >
                               {section.isActive ? "Active" : "Inactive"}
                             </Badge>
@@ -1295,265 +1502,373 @@ export default function CourseCurriculumPage() {
                     <div className="space-y-3">
                       {section.lessons?.length ? (
                         section.lessons.map(
-                          (lesson: Lesson, lessonIndex: number) => (
-                            <div
-                              key={lesson.id}
-                              className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm"
-                            >
-                              {editingLessonId === lesson.id ? (
-                                <div className="space-y-3">
-                                  <Input
-                                    value={editLessonTitle}
-                                    onChange={(event) =>
-                                      setEditLessonTitle(event.target.value)
-                                    }
-                                    disabled={!canEditDraft}
-                                    maxLength={255}
-                                  />
+                          (lesson: Lesson, lessonIndex: number) => {
+                            const lessonFiles = uploadedFiles[lesson.id] ?? [];
 
-                                  <Textarea
-                                    value={editLessonDescription}
-                                    onChange={(event) =>
-                                      setEditLessonDescription(
-                                        event.target.value
-                                      )
-                                    }
-                                    disabled={!canEditDraft}
-                                    maxLength={2000}
-                                  />
+                            return (
+                              <div
+                                key={lesson.id}
+                                className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm"
+                              >
+                                {editingLessonId === lesson.id ? (
+                                  <div className="space-y-3">
+                                    <Input
+                                      value={editLessonTitle}
+                                      onChange={(event) =>
+                                        setEditLessonTitle(event.target.value)
+                                      }
+                                      disabled={!canEditDraft}
+                                      maxLength={255}
+                                    />
 
-                                  <div className="flex gap-2">
-                                    <Button
-                                      size="sm"
-                                      type="button"
-                                      onClick={() =>
-                                        handleUpdateLesson(
-                                          section.id,
-                                          lesson.id
+                                    <Textarea
+                                      value={editLessonDescription}
+                                      onChange={(event) =>
+                                        setEditLessonDescription(
+                                          event.target.value
                                         )
                                       }
                                       disabled={!canEditDraft}
-                                    >
-                                      Save
-                                    </Button>
+                                      maxLength={2000}
+                                    />
 
-                                    <Button
-                                      size="sm"
-                                      type="button"
-                                      variant="outline"
-                                      onClick={() => setEditingLessonId(null)}
-                                    >
-                                      Cancel
-                                    </Button>
+                                    <div className="flex gap-2">
+                                      <Button
+                                        size="sm"
+                                        type="button"
+                                        onClick={() =>
+                                          handleUpdateLesson(
+                                            section.id,
+                                            lesson.id
+                                          )
+                                        }
+                                        disabled={!canEditDraft}
+                                      >
+                                        Save
+                                      </Button>
+
+                                      <Button
+                                        size="sm"
+                                        type="button"
+                                        variant="outline"
+                                        onClick={() => setEditingLessonId(null)}
+                                      >
+                                        Cancel
+                                      </Button>
+                                    </div>
                                   </div>
-                                </div>
-                              ) : (
-                                <div className="space-y-4">
-                                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                                    <div>
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        <p className="font-medium">
-                                          Lesson {lessonIndex + 1}:{" "}
-                                          {lesson.title}
-                                        </p>
+                                ) : (
+                                  <div className="space-y-4">
+                                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                      <div>
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <p className="font-medium">
+                                            Lesson {lessonIndex + 1}:{" "}
+                                            {lesson.title}
+                                          </p>
 
-                                        <Badge
-                                          variant={
-                                            lesson.isActive
-                                              ? "default"
-                                              : "secondary"
-                                          }
-                                        >
-                                          {lesson.isActive
-                                            ? "Active"
-                                            : "Inactive"}
-                                        </Badge>
+                                          <Badge
+                                            variant={
+                                              lesson.isActive
+                                                ? "default"
+                                                : "secondary"
+                                            }
+                                          >
+                                            {lesson.isActive
+                                              ? "Active"
+                                              : "Inactive"}
+                                          </Badge>
 
-                                        <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-500">
-                                          Level 2 · Lesson
-                                        </span>
+                                          <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-500">
+                                            Level 2 · Lesson
+                                          </span>
+                                        </div>
+
+                                        {lesson.description && (
+                                          <p className="mt-1 text-sm text-muted-foreground">
+                                            {lesson.description}
+                                          </p>
+                                        )}
                                       </div>
 
-                                      {lesson.description && (
-                                        <p className="mt-1 text-sm text-muted-foreground">
-                                          {lesson.description}
+                                      <div className="flex flex-wrap gap-2">
+                                        <Button
+                                          size="sm"
+                                          type="button"
+                                          variant="outline"
+                                          disabled={
+                                            lessonIndex === 0 || !canEditDraft
+                                          }
+                                          onClick={() =>
+                                            moveLesson(
+                                              section.id,
+                                              lesson.id,
+                                              "up"
+                                            )
+                                          }
+                                        >
+                                          Up
+                                        </Button>
+
+                                        <Button
+                                          size="sm"
+                                          type="button"
+                                          variant="outline"
+                                          disabled={
+                                            lessonIndex ===
+                                              (section.lessons?.length ?? 0) -
+                                                1 || !canEditDraft
+                                          }
+                                          onClick={() =>
+                                            moveLesson(
+                                              section.id,
+                                              lesson.id,
+                                              "down"
+                                            )
+                                          }
+                                        >
+                                          Down
+                                        </Button>
+
+                                        <Button
+                                          size="sm"
+                                          type="button"
+                                          variant="outline"
+                                          onClick={() =>
+                                            handleToggleLesson(
+                                              section.id,
+                                              lesson
+                                            )
+                                          }
+                                          disabled={!canEditDraft}
+                                        >
+                                          {lesson.isActive
+                                            ? "Disable"
+                                            : "Enable"}
+                                        </Button>
+
+                                        <Button
+                                          size="sm"
+                                          type="button"
+                                          variant="outline"
+                                          onClick={() => startEditLesson(lesson)}
+                                          disabled={!canEditDraft}
+                                        >
+                                          Edit
+                                        </Button>
+
+                                        <Button
+                                          size="sm"
+                                          type="button"
+                                          variant="destructive"
+                                          onClick={() =>
+                                            handleDeleteLesson(
+                                              section.id,
+                                              lesson
+                                            )
+                                          }
+                                          disabled={!canEditDraft}
+                                        >
+                                          Delete
+                                        </Button>
+                                      </div>
+                                    </div>
+
+                                    <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50/70 p-3">
+                                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                        <div>
+                                          <p className="text-sm font-medium">
+                                            Lesson Media
+                                          </p>
+
+                                          <p className="text-xs text-zinc-500">
+                                            Upload a file or paste a media URL.
+                                            Existing media is loaded from the
+                                            backend and can be edited or deleted.
+                                          </p>
+                                        </div>
+
+                                        <div className="flex flex-wrap gap-2">
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() =>
+                                              refreshLessonFiles(
+                                                section.id,
+                                                lesson.id
+                                              )
+                                            }
+                                            disabled={
+                                              refreshingLessonFilesId ===
+                                              lesson.id
+                                            }
+                                          >
+                                            <RefreshCw className="mr-2 h-4 w-4" />
+                                            {refreshingLessonFilesId ===
+                                            lesson.id
+                                              ? "Refreshing..."
+                                              : "Refresh"}
+                                          </Button>
+
+                                          <label className="inline-flex cursor-pointer items-center justify-center rounded-md border bg-white px-3 py-2 text-sm font-medium hover:bg-zinc-50">
+                                            <FileUp className="mr-2 h-4 w-4" />
+                                            Upload File
+
+                                            <input
+                                              type="file"
+                                              className="hidden"
+                                              disabled={
+                                                !canEditDraft ||
+                                                uploading?.lessonId ===
+                                                  lesson.id
+                                              }
+                                              onChange={(event) => {
+                                                const file =
+                                                  event.target.files?.[0];
+
+                                                if (file) {
+                                                  handleSelectLessonFile(
+                                                    section.id,
+                                                    lesson,
+                                                    file
+                                                  );
+                                                }
+
+                                                event.target.value = "";
+                                              }}
+                                            />
+                                          </label>
+                                        </div>
+                                      </div>
+
+                                      <MediaLinkForm
+                                        lessonId={lesson.id}
+                                        sectionId={section.id}
+                                        disabled={!canEditDraft}
+                                        saving={
+                                          savingMediaLinkLessonId === lesson.id
+                                        }
+                                        form={getMediaLinkForm(lesson.id)}
+                                        onUpdate={(patch) =>
+                                          updateMediaLinkForm(lesson.id, patch)
+                                        }
+                                        onSubmit={() =>
+                                          handleAttachLessonMediaUrl(
+                                            section.id,
+                                            lesson
+                                          )
+                                        }
+                                      />
+
+                                      {uploading?.lessonId === lesson.id && (
+                                        <p className="mt-2 text-xs text-blue-600">
+                                          {uploading.progressText}
+                                        </p>
+                                      )}
+
+                                      {lessonFiles.length ? (
+                                        <div className="mt-3 space-y-2">
+                                          {lessonFiles.map((file) => (
+                                            <div
+                                              key={file.id}
+                                              className="rounded-md border bg-white px-3 py-2 text-sm"
+                                            >
+                                              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                                <div className="min-w-0">
+                                                  <div className="flex flex-wrap items-center gap-2">
+                                                    <p className="max-w-md truncate font-medium">
+                                                      {file.filename ||
+                                                        "Lesson media"}
+                                                    </p>
+
+                                                    <MediaTypeBadge
+                                                      type={
+                                                        file.type as LessonMediaType
+                                                      }
+                                                    />
+                                                  </div>
+
+                                                  <p className="mt-1 truncate text-xs text-zinc-500">
+                                                    {file.url}
+                                                  </p>
+
+                                                  <p className="mt-1 text-xs text-zinc-500">
+                                                    {file.mimeType ||
+                                                      "No MIME type"}{" "}
+                                                    ·{" "}
+                                                    {formatFileSize(
+                                                      file.sizeInBytes
+                                                    )}
+                                                  </p>
+                                                </div>
+
+                                                <div className="flex shrink-0 flex-wrap gap-2">
+                                                  <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant="outline"
+                                                    onClick={() =>
+                                                      window.open(
+                                                        file.url,
+                                                        "_blank",
+                                                        "noopener,noreferrer"
+                                                      )
+                                                    }
+                                                  >
+                                                    <ExternalLink className="mr-2 h-4 w-4" />
+                                                    Open
+                                                  </Button>
+
+                                                  <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant="outline"
+                                                    onClick={() =>
+                                                      startEditFile(
+                                                        section.id,
+                                                        lesson.id,
+                                                        file
+                                                      )
+                                                    }
+                                                    disabled={!canEditDraft}
+                                                  >
+                                                    <Edit className="mr-2 h-4 w-4" />
+                                                    Edit
+                                                  </Button>
+
+                                                  <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant="destructive"
+                                                    onClick={() =>
+                                                      setFileToDelete({
+                                                        sectionId: section.id,
+                                                        lessonId: lesson.id,
+                                                        file,
+                                                      })
+                                                    }
+                                                    disabled={!canEditDraft}
+                                                  >
+                                                    <Trash2 className="mr-2 h-4 w-4" />
+                                                    Delete
+                                                  </Button>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <p className="mt-2 text-xs text-zinc-500">
+                                          No media files for this lesson yet.
                                         </p>
                                       )}
                                     </div>
-
-                                    <div className="flex flex-wrap gap-2">
-                                      <Button
-                                        size="sm"
-                                        type="button"
-                                        variant="outline"
-                                        disabled={
-                                          lessonIndex === 0 || !canEditDraft
-                                        }
-                                        onClick={() =>
-                                          moveLesson(
-                                            section.id,
-                                            lesson.id,
-                                            "up"
-                                          )
-                                        }
-                                      >
-                                        Up
-                                      </Button>
-
-                                      <Button
-                                        size="sm"
-                                        type="button"
-                                        variant="outline"
-                                        disabled={
-                                          lessonIndex ===
-                                            (section.lessons?.length ?? 0) - 1 ||
-                                          !canEditDraft
-                                        }
-                                        onClick={() =>
-                                          moveLesson(
-                                            section.id,
-                                            lesson.id,
-                                            "down"
-                                          )
-                                        }
-                                      >
-                                        Down
-                                      </Button>
-
-                                      <Button
-                                        size="sm"
-                                        type="button"
-                                        variant="outline"
-                                        onClick={() =>
-                                          handleToggleLesson(section.id, lesson)
-                                        }
-                                        disabled={!canEditDraft}
-                                      >
-                                        {lesson.isActive ? "Disable" : "Enable"}
-                                      </Button>
-
-                                      <Button
-                                        size="sm"
-                                        type="button"
-                                        variant="outline"
-                                        onClick={() => startEditLesson(lesson)}
-                                        disabled={!canEditDraft}
-                                      >
-                                        Edit
-                                      </Button>
-
-                                      <Button
-                                        size="sm"
-                                        type="button"
-                                        variant="destructive"
-                                        onClick={() =>
-                                          handleDeleteLesson(section.id, lesson)
-                                        }
-                                        disabled={!canEditDraft}
-                                      >
-                                        Delete
-                                      </Button>
-                                    </div>
                                   </div>
-
-                                  <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50/70 p-3">
-                                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                                      <div>
-                                        <p className="text-sm font-medium">
-                                          Lesson Media
-                                        </p>
-
-                                        <p className="text-xs text-zinc-500">
-                                          Level 3 · Upload a file or paste a
-                                          YouTube/watch URL. Type is detected
-                                          automatically.
-                                        </p>
-                                      </div>
-
-                                      <label className="inline-flex cursor-pointer items-center justify-center rounded-md border bg-white px-3 py-2 text-sm font-medium hover:bg-zinc-50">
-                                        <FileUp className="mr-2 h-4 w-4" />
-                                        Upload File
-
-                                        <input
-                                          type="file"
-                                          className="hidden"
-                                          disabled={
-                                            !canEditDraft ||
-                                            uploading?.lessonId === lesson.id
-                                          }
-                                          onChange={(event) => {
-                                            const file =
-                                              event.target.files?.[0];
-
-                                            if (file) {
-                                              handleSelectLessonFile(
-                                                section.id,
-                                                lesson,
-                                                file
-                                              );
-                                            }
-
-                                            event.target.value = "";
-                                          }}
-                                        />
-                                      </label>
-                                    </div>
-
-                                    <MediaLinkForm
-                                      lessonId={lesson.id}
-                                      sectionId={section.id}
-                                      disabled={!canEditDraft}
-                                      saving={
-                                        savingMediaLinkLessonId === lesson.id
-                                      }
-                                      form={getMediaLinkForm(lesson.id)}
-                                      onUpdate={(patch) =>
-                                        updateMediaLinkForm(lesson.id, patch)
-                                      }
-                                      onSubmit={() =>
-                                        handleAttachLessonMediaUrl(
-                                          section.id,
-                                          lesson
-                                        )
-                                      }
-                                    />
-
-                                    {uploading?.lessonId === lesson.id && (
-                                      <p className="mt-2 text-xs text-blue-600">
-                                        {uploading.progressText}
-                                      </p>
-                                    )}
-
-                                    {uploadedFiles[lesson.id]?.length ? (
-                                      <div className="mt-3 space-y-2">
-                                        {uploadedFiles[lesson.id].map((file) => (
-                                          <a
-                                            key={file.id}
-                                            href={file.url}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            className="flex items-center justify-between rounded-md border bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                                          >
-                                            <span className="min-w-0 truncate font-medium">
-                                              {file.filename || "Lesson media"}
-                                            </span>
-
-                                            <MediaTypeBadge
-                                              type={file.type as MediaType}
-                                            />
-                                          </a>
-                                        ))}
-                                      </div>
-                                    ) : (
-                                      <p className="mt-2 text-xs text-zinc-500">
-                                        Newly added media will appear here.
-                                      </p>
-                                    )}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          )
+                                )}
+                              </div>
+                            );
+                          }
                         )
                       ) : (
                         <p className="text-sm text-muted-foreground">
@@ -1630,6 +1945,191 @@ export default function CourseCurriculumPage() {
             </div>
           </SortableContext>
         </DndContext>
+      )}
+
+      {editingFile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-zinc-900">
+                  Edit lesson media
+                </h2>
+
+                <p className="mt-1 text-sm text-zinc-500">
+                  Update the saved file media information.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setEditingFile(null)}
+                disabled={savingFileEdit}
+                className="rounded-md p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium">URL</label>
+                <Input
+                  value={editingFile.form.url}
+                  onChange={(event) =>
+                    updateEditingFileForm({ url: event.target.value })
+                  }
+                  disabled={savingFileEdit}
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium">
+                  Filename
+                </label>
+                <Input
+                  value={editingFile.form.filename}
+                  onChange={(event) =>
+                    updateEditingFileForm({ filename: event.target.value })
+                  }
+                  disabled={savingFileEdit}
+                />
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-medium">Type</label>
+                  <select
+                    value={editingFile.form.type}
+                    onChange={(event) =>
+                      updateEditingFileForm({
+                        type: event.target.value as LessonMediaType,
+                      })
+                    }
+                    disabled={savingFileEdit}
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="VIDEO">Video</option>
+                    <option value="IMAGE">Image</option>
+                    <option value="AUDIO">Audio</option>
+                    <option value="DOCUMENT">Document</option>
+                    <option value="OTHER">Other</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium">
+                    Size in bytes
+                  </label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={editingFile.form.sizeInBytes}
+                    onChange={(event) =>
+                      updateEditingFileForm({
+                        sizeInBytes: event.target.value,
+                      })
+                    }
+                    disabled={savingFileEdit}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium">
+                  MIME type
+                </label>
+                <Input
+                  value={editingFile.form.mimeType}
+                  onChange={(event) =>
+                    updateEditingFileForm({ mimeType: event.target.value })
+                  }
+                  disabled={savingFileEdit}
+                  placeholder="video/mp4, image/png, application/pdf..."
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium">
+                  Cloudinary public ID
+                </label>
+                <Input
+                  value={editingFile.form.cloudinaryPublicId}
+                  onChange={(event) =>
+                    updateEditingFileForm({
+                      cloudinaryPublicId: event.target.value,
+                    })
+                  }
+                  disabled={savingFileEdit}
+                />
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setEditingFile(null)}
+                disabled={savingFileEdit}
+              >
+                Cancel
+              </Button>
+
+              <Button
+                type="button"
+                onClick={handleUpdateFileMedia}
+                disabled={savingFileEdit}
+              >
+                {savingFileEdit ? "Saving..." : "Save changes"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {fileToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <h2 className="text-lg font-semibold text-zinc-900">
+              Delete lesson media?
+            </h2>
+
+            <p className="mt-2 text-sm text-zinc-500">
+              This media record will be removed from this lesson.
+            </p>
+
+            <div className="mt-4 rounded-lg border bg-zinc-50 p-3 text-sm">
+              <p className="font-medium text-zinc-900">
+                {fileToDelete.file.filename || "Lesson media"}
+              </p>
+
+              <p className="mt-1 truncate text-xs text-zinc-500">
+                {fileToDelete.file.url}
+              </p>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setFileToDelete(null)}
+                disabled={deletingFile}
+              >
+                Cancel
+              </Button>
+
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={confirmDeleteFileMedia}
+                disabled={deletingFile}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                {deletingFile ? "Deleting..." : "Delete Media"}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
 
       {pendingUpload && (
