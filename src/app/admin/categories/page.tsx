@@ -1,30 +1,18 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import api from "@/lib/api";
+import { AlertTriangle, CheckCircle2, Info, XCircle } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import RoleGuard from "@/components/RoleGuard";
-
-type Category = {
-  id: string;
-  name: string;
-  slug: string;
-  description?: string | null;
-  parentId?: string | null;
-  parentName?: string;
-  order: number;
-  isActive: boolean;
-  createdAt: Date | string;
-  updatedAt: Date | string;
-  deletedAt?: Date | string | null;
-  courseCount?: number;
-  childrenCount?: number;
-};
+import {
+  adminCourseCategoryService,
+  AdminCategorySortBy,
+  AdminCategorySortOrder,
+  AdminCourseCategory,
+  normalizeAdminCategory,
+} from "@/services/admin-course-category.service";
 
 type FormMode = "create" | "edit";
-
-type SortBy = "name" | "order" | "createdAt" | "updatedAt";
-type SortOrder = "asc" | "desc";
 
 type ConfirmModalState = {
   open: boolean;
@@ -35,10 +23,17 @@ type ConfirmModalState = {
   onConfirm: (() => Promise<void>) | null;
 };
 
+type AlertModalState = {
+  open: boolean;
+  title: string;
+  message: string;
+  variant: "success" | "error" | "info" | "warning";
+};
+
 export default function AdminCategoriesPage() {
   const { user, loading: authLoading } = useAuth();
 
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [categories, setCategories] = useState<AdminCourseCategory[]>([]);
   const [loading, setLoading] = useState(false);
   const [tableLoading, setTableLoading] = useState(false);
 
@@ -52,8 +47,8 @@ export default function AdminCategoriesPage() {
   const [search, setSearch] = useState("");
   const [filterActive, setFilterActive] = useState<boolean | "all">("all");
   const [includeDeleted, setIncludeDeleted] = useState(false);
-  const [sortBy, setSortBy] = useState<SortBy>("createdAt");
-  const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+  const [sortBy, setSortBy] = useState<AdminCategorySortBy>("createdAt");
+  const [sortOrder, setSortOrder] = useState<AdminCategorySortOrder>("desc");
 
   const [formMode, setFormMode] = useState<FormMode>("create");
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(
@@ -77,25 +72,15 @@ export default function AdminCategoriesPage() {
     onConfirm: null,
   });
 
+  const [alertModal, setAlertModal] = useState<AlertModalState>({
+    open: false,
+    title: "",
+    message: "",
+    variant: "info",
+  });
+
   const isAdmin = user?.role === "ADMIN";
   const totalPages = Math.max(1, Math.ceil(total / limit));
-
-  const normalizeBoolean = (value: unknown): boolean => {
-    return (
-      value === true ||
-      value === 1 ||
-      value === "1" ||
-      value === "true" ||
-      value === "TRUE"
-    );
-  };
-
-  const normalizeCategory = (category: any): Category => {
-    return {
-      ...category,
-      isActive: normalizeBoolean(category.isActive),
-    };
-  };
 
   const formatDateTime = (value?: Date | string | null) => {
     if (!value) return "-";
@@ -123,44 +108,50 @@ export default function AdminCategoriesPage() {
     return message || fallback;
   };
 
+  const showAlertModal = (
+    title: string,
+    message: string,
+    variant: AlertModalState["variant"] = "info"
+  ) => {
+    setAlertModal({
+      open: true,
+      title,
+      message,
+      variant,
+    });
+  };
+
+  const closeAlertModal = () => {
+    setAlertModal({
+      open: false,
+      title: "",
+      message: "",
+      variant: "info",
+    });
+  };
+
   const loadCategories = async () => {
     setTableLoading(true);
     setError(null);
 
     try {
-      const params = new URLSearchParams({
-        page: page.toString(),
-        limit: limit.toString(),
+      const response = await adminCourseCategoryService.getCategories({
+        page,
+        limit,
+        search,
+        isActive: filterActive,
+        includeDeleted,
         sortBy,
         sortOrder,
       });
 
-      if (search.trim()) {
-        params.set("search", search.trim());
-      }
-
-      if (filterActive === true) {
-        params.set("isActive", "true");
-      }
-
-      if (filterActive === false) {
-        params.set("isActive", "false");
-      }
-
-      if (includeDeleted) {
-        params.set("includeDeleted", "true");
-      }
-
-      const res = await api.get(
-        `/v1/admin/courses/categories?${params.toString()}`
-      );
-
-      const categoryList = res.data?.data?.data || [];
-
-      setCategories(categoryList.map(normalizeCategory));
-      setTotal(res.data?.data?.meta?.total || 0);
+      setCategories(response.data);
+      setTotal(response.meta.total);
     } catch (err: any) {
-      setError(getErrorMessage(err, "Failed to load categories"));
+      const message = getErrorMessage(err, "Failed to load categories");
+
+      setError(message);
+      showAlertModal("Failed to load categories", message, "error");
     } finally {
       setTableLoading(false);
     }
@@ -225,8 +216,8 @@ export default function AdminCategoriesPage() {
     });
   };
 
-  const handleEdit = (category: Category) => {
-    const normalizedCategory = normalizeCategory(category);
+  const handleEdit = (category: AdminCourseCategory) => {
+    const normalizedCategory = normalizeAdminCategory(category);
 
     setFormMode("edit");
     setSelectedCategoryId(normalizedCategory.id);
@@ -269,21 +260,57 @@ export default function AdminCategoriesPage() {
   };
 
   const buildUpdatePayload = () => {
-    const payload: {
-      name?: string;
-      description?: string | null;
-      parentId?: string | null;
-      order?: number;
-      isActive?: boolean;
-    } = {
+    return {
       name: formData.name.trim(),
       description: formData.description.trim() || null,
       parentId: formData.parentId || null,
       order: Number(formData.order),
       isActive: formData.isActive === "true",
     };
+  };
 
-    return payload;
+  const setErrorWithModal = (title: string, message: string) => {
+    setError(message);
+    showAlertModal(title, message, "error");
+  };
+
+  const setSuccessWithModal = (message: string) => {
+    setSuccess(message);
+    showAlertModal("Success", message, "success");
+  };
+
+  const validateForm = () => {
+    if (!formData.name.trim()) {
+      showAlertModal("Validation error", "Category name is required", "warning");
+      setError("Category name is required");
+      return false;
+    }
+
+    if (formData.name.trim().length > 100 && formMode === "create") {
+      const message = "Category name must be shorter than 100 characters";
+
+      showAlertModal("Validation error", message, "warning");
+      setError(message);
+      return false;
+    }
+
+    if (formData.description.trim().length > 500 && formMode === "create") {
+      const message = "Description must be shorter than 500 characters";
+
+      showAlertModal("Validation error", message, "warning");
+      setError(message);
+      return false;
+    }
+
+    if (formMode === "edit" && Number.isNaN(Number(formData.order))) {
+      const message = "Order must be a number";
+
+      showAlertModal("Validation error", message, "warning");
+      setError(message);
+      return false;
+    }
+
+    return true;
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -293,55 +320,38 @@ export default function AdminCategoriesPage() {
     setError(null);
     setSuccess(null);
 
-    if (!formData.name.trim()) {
-      setError("Category name is required");
-      setLoading(false);
-      return;
-    }
-
-    if (formData.name.trim().length > 100 && formMode === "create") {
-      setError("Category name must be shorter than 100 characters");
-      setLoading(false);
-      return;
-    }
-
-    if (formData.description.trim().length > 500 && formMode === "create") {
-      setError("Description must be shorter than 500 characters");
-      setLoading(false);
-      return;
-    }
-
-    if (formMode === "edit" && Number.isNaN(Number(formData.order))) {
-      setError("Order must be a number");
+    if (!validateForm()) {
       setLoading(false);
       return;
     }
 
     try {
       if (formMode === "create") {
-        await api.post("/v1/admin/courses/categories", buildCreatePayload());
-        setSuccess("Category created successfully");
+        await adminCourseCategoryService.createCategory(buildCreatePayload());
+        setSuccessWithModal("Category created successfully");
       }
 
       if (formMode === "edit" && selectedCategoryId) {
-        await api.patch(
-          `/v1/admin/courses/categories/${selectedCategoryId}`,
+        await adminCourseCategoryService.updateCategory(
+          selectedCategoryId,
           buildUpdatePayload()
         );
-        setSuccess("Category updated successfully");
+        setSuccessWithModal("Category updated successfully");
       }
 
       resetForm();
       setPage(1);
       await loadCategories();
     } catch (err: any) {
-      setError(getErrorMessage(err, "Save failed"));
+      const message = getErrorMessage(err, "Save failed");
+
+      setErrorWithModal("Save failed", message);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSoftDelete = (category: Category) => {
+  const handleSoftDelete = (category: AdminCourseCategory) => {
     setConfirmModal({
       open: true,
       title: "Delete category?",
@@ -354,10 +364,8 @@ export default function AdminCategoriesPage() {
         setSuccess(null);
 
         try {
-          await api.patch(
-            `/v1/admin/courses/categories/${category.id}/soft-delete`
-          );
-          setSuccess("Category soft deleted");
+          await adminCourseCategoryService.softDeleteCategory(category.id);
+          setSuccessWithModal("Category soft deleted");
 
           if (selectedCategoryId === category.id) {
             resetForm();
@@ -366,7 +374,9 @@ export default function AdminCategoriesPage() {
           await loadCategories();
           closeConfirmModal();
         } catch (err: any) {
-          setError(getErrorMessage(err, "Delete failed"));
+          const message = getErrorMessage(err, "Delete failed");
+
+          setErrorWithModal("Delete failed", message);
         } finally {
           setLoading(false);
         }
@@ -374,7 +384,7 @@ export default function AdminCategoriesPage() {
     });
   };
 
-  const handleRestore = (category: Category) => {
+  const handleRestore = (category: AdminCourseCategory) => {
     setConfirmModal({
       open: true,
       title: "Restore category?",
@@ -387,14 +397,14 @@ export default function AdminCategoriesPage() {
         setSuccess(null);
 
         try {
-          await api.patch(
-            `/v1/admin/courses/categories/${category.id}/restore`
-          );
-          setSuccess("Category restored");
+          await adminCourseCategoryService.restoreCategory(category.id);
+          setSuccessWithModal("Category restored");
           await loadCategories();
           closeConfirmModal();
         } catch (err: any) {
-          setError(getErrorMessage(err, "Restore failed"));
+          const message = getErrorMessage(err, "Restore failed");
+
+          setErrorWithModal("Restore failed", message);
         } finally {
           setLoading(false);
         }
@@ -402,8 +412,8 @@ export default function AdminCategoriesPage() {
     });
   };
 
-  const handleToggleActive = (category: Category) => {
-    const normalizedCategory = normalizeCategory(category);
+  const handleToggleActive = (category: AdminCourseCategory) => {
+    const normalizedCategory = normalizeAdminCategory(category);
     const nextStatus = !normalizedCategory.isActive;
 
     setConfirmModal({
@@ -420,14 +430,14 @@ export default function AdminCategoriesPage() {
         setSuccess(null);
 
         try {
-          await api.patch(
-            `/v1/admin/courses/categories/${normalizedCategory.id}/active-status`,
-            {
-              isActive: nextStatus,
-            }
+          await adminCourseCategoryService.updateActiveStatus(
+            normalizedCategory.id,
+            nextStatus
           );
 
-          setSuccess(`Category ${nextStatus ? "activated" : "deactivated"}`);
+          setSuccessWithModal(
+            `Category ${nextStatus ? "activated" : "deactivated"}`
+          );
 
           if (selectedCategoryId === normalizedCategory.id) {
             setFormData((prev) => ({
@@ -439,7 +449,9 @@ export default function AdminCategoriesPage() {
           await loadCategories();
           closeConfirmModal();
         } catch (err: any) {
-          setError(getErrorMessage(err, "Update failed"));
+          const message = getErrorMessage(err, "Update failed");
+
+          setErrorWithModal("Update failed", message);
         } finally {
           setLoading(false);
         }
@@ -475,6 +487,54 @@ export default function AdminCategoriesPage() {
     if (confirmModal.variant === "danger") return "!";
     if (confirmModal.variant === "warning") return "!";
     return "✓";
+  };
+
+  const getAlertIconStyle = () => {
+    if (alertModal.variant === "success") {
+      return "bg-green-100 text-green-700";
+    }
+
+    if (alertModal.variant === "error") {
+      return "bg-red-100 text-red-700";
+    }
+
+    if (alertModal.variant === "warning") {
+      return "bg-yellow-100 text-yellow-700";
+    }
+
+    return "bg-blue-100 text-blue-700";
+  };
+
+  const getAlertButtonStyle = () => {
+    if (alertModal.variant === "success") {
+      return "bg-green-600 hover:bg-green-700";
+    }
+
+    if (alertModal.variant === "error") {
+      return "bg-red-600 hover:bg-red-700";
+    }
+
+    if (alertModal.variant === "warning") {
+      return "bg-yellow-600 hover:bg-yellow-700";
+    }
+
+    return "bg-blue-600 hover:bg-blue-700";
+  };
+
+  const getAlertIcon = () => {
+    if (alertModal.variant === "success") {
+      return <CheckCircle2 className="h-6 w-6" />;
+    }
+
+    if (alertModal.variant === "error") {
+      return <XCircle className="h-6 w-6" />;
+    }
+
+    if (alertModal.variant === "warning") {
+      return <AlertTriangle className="h-6 w-6" />;
+    }
+
+    return <Info className="h-6 w-6" />;
   };
 
   if (authLoading) {
@@ -779,15 +839,13 @@ export default function AdminCategoriesPage() {
                       filterActive === "all" ? "all" : String(filterActive)
                     }
                     onChange={(e) => {
-                      if (e.target.value === "all") {
+                      const value = e.target.value;
+
+                      if (value === "all") {
                         setFilterActive("all");
-                      }
-
-                      if (e.target.value === "true") {
+                      } else if (value === "true") {
                         setFilterActive(true);
-                      }
-
-                      if (e.target.value === "false") {
+                      } else if (value === "false") {
                         setFilterActive(false);
                       }
 
@@ -817,8 +875,8 @@ export default function AdminCategoriesPage() {
                     onChange={(e) => {
                       const [field, order] = e.target.value.split("-");
 
-                      setSortBy(field as SortBy);
-                      setSortOrder(order as SortOrder);
+                      setSortBy(field as AdminCategorySortBy);
+                      setSortOrder(order as AdminCategorySortOrder);
                       setPage(1);
                     }}
                   >
@@ -1113,6 +1171,38 @@ export default function AdminCategoriesPage() {
                   className={`rounded-lg px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-60 ${getModalButtonStyle()}`}
                 >
                   {loading ? "Processing..." : confirmModal.confirmText}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {alertModal.open && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4">
+            <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+              <div className="mb-5">
+                <div
+                  className={`mb-4 flex h-12 w-12 items-center justify-center rounded-full ${getAlertIconStyle()}`}
+                >
+                  {getAlertIcon()}
+                </div>
+
+                <h3 className="text-lg font-semibold text-zinc-900">
+                  {alertModal.title}
+                </h3>
+
+                <p className="mt-2 text-sm leading-6 text-zinc-600">
+                  {alertModal.message}
+                </p>
+              </div>
+
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={closeAlertModal}
+                  className={`rounded-lg px-4 py-2 text-sm font-medium text-white transition ${getAlertButtonStyle()}`}
+                >
+                  OK
                 </button>
               </div>
             </div>

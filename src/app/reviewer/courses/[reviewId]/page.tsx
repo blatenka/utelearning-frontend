@@ -3,7 +3,14 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, CheckCircle2, Send } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  CheckCircle2,
+  Info,
+  Send,
+  XCircle,
+} from "lucide-react";
 
 import { useAuth } from "@/providers/AuthProvider";
 import {
@@ -16,12 +23,115 @@ import type {
   ReviewerCourseReviewWorkspace,
 } from "@/services/review.service";
 
+type AlertModalState = {
+  open: boolean;
+  title: string;
+  message: string;
+  variant: "success" | "error" | "info" | "warning";
+  redirectTo?: string;
+};
+
+type ConfirmDecisionModalState = {
+  open: boolean;
+};
+
+function getErrorMessage(err: unknown, fallback: string) {
+  if (
+    typeof err === "object" &&
+    err !== null &&
+    "response" in err &&
+    typeof (err as any).response?.data?.message === "string"
+  ) {
+    return (err as any).response.data.message;
+  }
+
+  if (
+    typeof err === "object" &&
+    err !== null &&
+    "response" in err &&
+    Array.isArray((err as any).response?.data?.message)
+  ) {
+    return (err as any).response.data.message.join(", ");
+  }
+
+  if (err instanceof Error) {
+    return err.message;
+  }
+
+  return fallback;
+}
+
+function formatCurrency(value?: number | null) {
+  return new Intl.NumberFormat("vi-VN", {
+    style: "currency",
+    currency: "VND",
+    maximumFractionDigits: 0,
+  }).format(value ?? 0);
+}
+
+function formatDateTime(value?: string | Date | null) {
+  if (!value) return "Not set";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "Not set";
+
+  return date.toLocaleString("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatFileSize(sizeInBytes?: number | null) {
+  if (typeof sizeInBytes !== "number" || Number.isNaN(sizeInBytes)) {
+    return "";
+  }
+
+  if (sizeInBytes < 1024) {
+    return `${sizeInBytes} B`;
+  }
+
+  if (sizeInBytes < 1024 * 1024) {
+    return `${Math.round(sizeInBytes / 1024)} KB`;
+  }
+
+  return `${(sizeInBytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function getDecisionLabel(status: ReviewDecisionStatus) {
+  if (status === "APPROVED") return "Approve Course";
+  if (status === "REJECTED") return "Reject Course";
+  return "Request Changes";
+}
+
+function getDecisionDescription(status: ReviewDecisionStatus) {
+  if (status === "APPROVED") {
+    return "This course will be approved. Make sure the course information, curriculum, lessons, and media files are acceptable.";
+  }
+
+  if (status === "REJECTED") {
+    return "This course will be rejected. Rejected courses may become archived, so the instructor may not be able to edit it again. A clear note is required.";
+  }
+
+  return "This course will be sent back to the instructor for updates. A clear note is required so the instructor knows what to improve.";
+}
+
+function getDecisionModalVariant(status: ReviewDecisionStatus) {
+  if (status === "APPROVED") return "success";
+  if (status === "REJECTED") return "danger";
+  return "warning";
+}
+
 export default function ReviewerCourseWorkspacePage() {
   const params = useParams<{ reviewId: string }>();
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
 
   const reviewId = params.reviewId;
+
   const [workspace, setWorkspace] =
     useState<ReviewerCourseReviewWorkspace | null>(null);
 
@@ -31,87 +141,248 @@ export default function ReviewerCourseWorkspacePage() {
   const [reviewNote, setReviewNote] = useState("");
   const [loading, setLoading] = useState(false);
   const [submittingDecision, setSubmittingDecision] = useState(false);
-  const [error, setError] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
+
+  const [alertModal, setAlertModal] = useState<AlertModalState>({
+    open: false,
+    title: "",
+    message: "",
+    variant: "info",
+  });
+
+  const [confirmDecisionModal, setConfirmDecisionModal] =
+    useState<ConfirmDecisionModalState>({
+      open: false,
+    });
 
   const course = workspace?.course;
+  const decisionLabel = getDecisionLabel(status);
 
-  const decisionLabel =
-    status === "APPROVED"
-      ? "Approve Course"
-      : status === "REJECTED"
-        ? "Reject Course"
-        : "Request Changes";
+  const requiresReviewNote =
+    status === "CHANGES_REQUESTED" || status === "REJECTED";
+
+  const isDecisionAlreadySubmitted =
+    workspace?.reviewStatus &&
+    workspace.reviewStatus !== "PENDING" &&
+    workspace.reviewStatus !== "CHANGES_REQUESTED";
+
+  const showModal = (
+    title: string,
+    message: string,
+    variant: AlertModalState["variant"] = "info",
+    redirectTo?: string
+  ) => {
+    setAlertModal({
+      open: true,
+      title,
+      message,
+      variant,
+      redirectTo,
+    });
+  };
+
+  const closeAlertModal = () => {
+    const redirectTo = alertModal.redirectTo;
+
+    setAlertModal({
+      open: false,
+      title: "",
+      message: "",
+      variant: "info",
+    });
+
+    if (redirectTo) {
+      router.replace(redirectTo);
+    }
+  };
+
+  const closeConfirmDecisionModal = () => {
+    if (submittingDecision) return;
+
+    setConfirmDecisionModal({
+      open: false,
+    });
+  };
 
   async function fetchWorkspace() {
     if (!reviewId || reviewId === "undefined") {
-      setError("Invalid review task id.");
       setWorkspace(null);
+      showModal("Invalid review task", "Invalid review task id.", "error");
       return;
     }
 
     try {
       setLoading(true);
-      setError("");
-      setSuccessMessage("");
 
       const response = await reviewerCourseService.getReviewWorkspace(reviewId);
       const payload = unwrapData<ReviewerCourseReviewWorkspace>(response);
 
       setWorkspace(payload);
       setReviewNote(payload?.reviewNote ?? "");
-    } catch (err: any) {
+    } catch (err) {
       setWorkspace(null);
-      setError(
-        err?.response?.data?.message || "Failed to load review workspace."
+      showModal(
+        "Failed to load review workspace",
+        getErrorMessage(err, "Failed to load review workspace."),
+        "error"
       );
     } finally {
       setLoading(false);
     }
   }
 
-  async function handleSubmitDecision(event: FormEvent<HTMLFormElement>) {
+  function handleSubmitDecision(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     if (!reviewId || reviewId === "undefined") {
-      setError("Invalid review task id.");
+      showModal("Invalid review task", "Invalid review task id.", "error");
       return;
     }
 
-    const confirmed = window.confirm(
-      `Are you sure you want to submit this decision: ${status}?`
-    );
+    if (requiresReviewNote && reviewNote.trim().length === 0) {
+      showModal(
+        "Review note is required",
+        status === "REJECTED"
+          ? "Please write a clear reason before rejecting this course. The instructor needs to understand why the course was rejected."
+          : "Please write what the instructor should improve before requesting changes.",
+        "warning"
+      );
+      return;
+    }
 
-    if (!confirmed) return;
+    setConfirmDecisionModal({
+      open: true,
+    });
+  }
+
+  async function confirmSubmitDecision() {
+    if (!reviewId || reviewId === "undefined") {
+      showModal("Invalid review task", "Invalid review task id.", "error");
+      return;
+    }
 
     try {
       setSubmittingDecision(true);
-      setError("");
-      setSuccessMessage("");
 
       await reviewerCourseService.submitDecision(reviewId, {
         status,
         reviewNote: reviewNote.trim() || null,
       });
 
-      setSuccessMessage(
+      setConfirmDecisionModal({
+        open: false,
+      });
+
+      showModal(
+        status === "APPROVED"
+          ? "Course approved"
+          : status === "REJECTED"
+            ? "Course rejected"
+            : "Changes requested",
         status === "APPROVED"
           ? "Course approved successfully."
           : status === "REJECTED"
-            ? "Course rejected successfully."
-            : "Change request submitted successfully."
+            ? "Course rejected successfully. The instructor can view your review note."
+            : "Change request submitted successfully. The instructor can view your review note and update the course.",
+        "success",
+        "/reviewer/courses"
       );
-
-      setTimeout(() => {
-        router.replace("/reviewer/courses");
-      }, 800);
-    } catch (err: any) {
-      setError(
-        err?.response?.data?.message || "Failed to submit review decision."
+    } catch (err) {
+      showModal(
+        "Failed to submit decision",
+        getErrorMessage(err, "Failed to submit review decision."),
+        "error"
       );
     } finally {
       setSubmittingDecision(false);
     }
+  }
+
+  function getAlertIconStyle() {
+    if (alertModal.variant === "success") {
+      return "bg-green-100 text-green-700";
+    }
+
+    if (alertModal.variant === "error") {
+      return "bg-red-100 text-red-700";
+    }
+
+    if (alertModal.variant === "warning") {
+      return "bg-yellow-100 text-yellow-700";
+    }
+
+    return "bg-blue-100 text-blue-700";
+  }
+
+  function getAlertButtonStyle() {
+    if (alertModal.variant === "success") {
+      return "bg-green-600 hover:bg-green-700";
+    }
+
+    if (alertModal.variant === "error") {
+      return "bg-red-600 hover:bg-red-700";
+    }
+
+    if (alertModal.variant === "warning") {
+      return "bg-yellow-600 hover:bg-yellow-700";
+    }
+
+    return "bg-blue-600 hover:bg-blue-700";
+  }
+
+  function getAlertIcon() {
+    if (alertModal.variant === "success") {
+      return <CheckCircle2 className="h-6 w-6" />;
+    }
+
+    if (alertModal.variant === "error") {
+      return <XCircle className="h-6 w-6" />;
+    }
+
+    if (alertModal.variant === "warning") {
+      return <AlertTriangle className="h-6 w-6" />;
+    }
+
+    return <Info className="h-6 w-6" />;
+  }
+
+  function getDecisionModalIconStyle() {
+    const variant = getDecisionModalVariant(status);
+
+    if (variant === "success") {
+      return "bg-green-100 text-green-700";
+    }
+
+    if (variant === "danger") {
+      return "bg-red-100 text-red-700";
+    }
+
+    return "bg-yellow-100 text-yellow-700";
+  }
+
+  function getDecisionModalButtonStyle() {
+    const variant = getDecisionModalVariant(status);
+
+    if (variant === "success") {
+      return "bg-green-600 hover:bg-green-700";
+    }
+
+    if (variant === "danger") {
+      return "bg-red-600 hover:bg-red-700";
+    }
+
+    return "bg-yellow-600 hover:bg-yellow-700";
+  }
+
+  function getDecisionModalIcon() {
+    if (status === "APPROVED") {
+      return <CheckCircle2 className="h-6 w-6" />;
+    }
+
+    if (status === "REJECTED") {
+      return <XCircle className="h-6 w-6" />;
+    }
+
+    return <AlertTriangle className="h-6 w-6" />;
   }
 
   useEffect(() => {
@@ -165,44 +436,24 @@ export default function ReviewerCourseWorkspacePage() {
             decision.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => router.push(`/reviewer/courses/${reviewId}/preview`)}
-          className="rounded-xl border bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50"
-        >
-          Preview Course
-        </button>
 
-        <Link
-          href="/reviewer/courses/available"
-          className="inline-flex rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50"
-        >
-          Available Courses
-        </Link>
-      </div>
-
-      {error && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {Array.isArray(error) ? error.join(", ") : error}
-        </div>
-      )}
-
-      {successMessage && (
-        <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm text-emerald-700">
-          <div className="flex items-center">
-            <CheckCircle2 className="mr-2 h-4 w-4" />
-            <span>{successMessage}</span>
-          </div>
-
+        <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => router.push("/reviewer/courses")}
-            className="mt-3 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700"
+            onClick={() => router.push(`/reviewer/courses/${reviewId}/preview`)}
+            className="rounded-xl border bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50"
           >
-            Back to My Review Tasks
+            Preview Course
           </button>
+
+          <Link
+            href="/reviewer/courses/available"
+            className="inline-flex rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50"
+          >
+            Available Courses
+          </Link>
         </div>
-      )}
+      </div>
 
       {loading ? (
         <p className="text-sm text-zinc-500">Loading review workspace...</p>
@@ -277,7 +528,7 @@ export default function ReviewerCourseWorkspacePage() {
                     <p className="font-medium text-zinc-900">Price</p>
                     <p className="text-zinc-500">
                       {typeof course.price === "number"
-                        ? `$${course.price}`
+                        ? formatCurrency(course.price)
                         : "Free / Not set"}
                     </p>
                   </div>
@@ -301,9 +552,7 @@ export default function ReviewerCourseWorkspacePage() {
                   <div>
                     <p className="font-medium text-zinc-900">Submitted At</p>
                     <p className="text-zinc-500">
-                      {workspace.submittedAt
-                        ? new Date(workspace.submittedAt).toLocaleString()
-                        : "Not set"}
+                      {formatDateTime(workspace.submittedAt)}
                     </p>
                   </div>
 
@@ -311,7 +560,7 @@ export default function ReviewerCourseWorkspacePage() {
                     <p className="font-medium text-zinc-900">Reviewed At</p>
                     <p className="text-zinc-500">
                       {workspace.reviewedAt
-                        ? new Date(workspace.reviewedAt).toLocaleString()
+                        ? formatDateTime(workspace.reviewedAt)
                         : "Not reviewed yet"}
                     </p>
                   </div>
@@ -488,15 +737,11 @@ export default function ReviewerCourseWorkspacePage() {
                                           </span>
                                         )}
 
-                                        {typeof file.sizeInBytes ===
-                                          "number" && (
-                                            <span className="ml-2 text-xs text-zinc-500">
-                                              {Math.round(
-                                                file.sizeInBytes / 1024
-                                              )}{" "}
-                                              KB
-                                            </span>
-                                          )}
+                                        {formatFileSize(file.sizeInBytes) && (
+                                          <span className="ml-2 text-xs text-zinc-500">
+                                            {formatFileSize(file.sizeInBytes)}
+                                          </span>
+                                        )}
                                       </a>
                                     ))}
                                   </div>
@@ -522,6 +767,16 @@ export default function ReviewerCourseWorkspacePage() {
                 Submit your final decision for this course.
               </p>
 
+              {isDecisionAlreadySubmitted && (
+                <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+                  This review task already has status{" "}
+                  <span className="font-semibold">
+                    {workspace.reviewStatus}
+                  </span>
+                  . Submitting another decision may be blocked by the backend.
+                </div>
+              )}
+
               <form onSubmit={handleSubmitDecision} className="mt-5 space-y-4">
                 <div>
                   <label className="mb-1 block text-sm font-medium text-zinc-900">
@@ -539,26 +794,48 @@ export default function ReviewerCourseWorkspacePage() {
                     <option value="CHANGES_REQUESTED">Request changes</option>
                     <option value="REJECTED">Reject</option>
                   </select>
+
+                  <p className="mt-2 text-xs leading-5 text-zinc-500">
+                    {getDecisionDescription(status)}
+                  </p>
                 </div>
 
                 <div>
                   <label className="mb-1 block text-sm font-medium text-zinc-900">
-                    Review Note
+                    Review Note{" "}
+                    {requiresReviewNote && (
+                      <span className="text-red-600">*</span>
+                    )}
                   </label>
 
                   <textarea
                     value={reviewNote}
                     onChange={(event) => setReviewNote(event.target.value)}
-                    placeholder="Write review notes for the instructor..."
+                    placeholder={
+                      status === "APPROVED"
+                        ? "Optional note for the instructor..."
+                        : status === "REJECTED"
+                          ? "Write a clear reason why this course is rejected..."
+                          : "Write what the instructor should improve..."
+                    }
                     rows={8}
                     maxLength={10000}
                     className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
                   />
+
+                  <div className="mt-1 flex justify-between text-xs text-zinc-500">
+                    <span>
+                      {requiresReviewNote
+                        ? "Required for this decision."
+                        : "Optional for approval."}
+                    </span>
+                    <span>{reviewNote.length}/10000</span>
+                  </div>
                 </div>
 
                 <button
                   type="submit"
-                  disabled={submittingDecision || Boolean(successMessage)}
+                  disabled={submittingDecision}
                   className="inline-flex w-full items-center justify-center rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <Send className="mr-2 h-4 w-4" />
@@ -567,6 +844,93 @@ export default function ReviewerCourseWorkspacePage() {
               </form>
             </div>
           </aside>
+        </div>
+      )}
+
+      {confirmDecisionModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-lg rounded-2xl border bg-white p-6 shadow-2xl">
+            <div
+              className={`mb-4 flex h-12 w-12 items-center justify-center rounded-full ${getDecisionModalIconStyle()}`}
+            >
+              {getDecisionModalIcon()}
+            </div>
+
+            <h2 className="text-lg font-semibold text-zinc-900">
+              Confirm decision
+            </h2>
+
+            <p className="mt-2 text-sm leading-6 text-zinc-600">
+              Are you sure you want to submit this decision?
+            </p>
+
+            <div className="mt-4 rounded-xl border bg-zinc-50 p-4">
+              <p className="text-sm text-zinc-500">Decision</p>
+              <p className="mt-1 font-semibold text-zinc-900">{status}</p>
+
+              <p className="mt-4 text-sm text-zinc-500">Review note</p>
+              <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-zinc-700">
+                {reviewNote.trim() || "No note provided."}
+              </p>
+            </div>
+
+            {status === "REJECTED" && (
+              <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-800">
+                Rejected courses may become archived. The instructor may not be
+                able to edit this course again, so make sure your note is clear.
+              </div>
+            )}
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeConfirmDecisionModal}
+                disabled={submittingDecision}
+                className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={confirmSubmitDecision}
+                disabled={submittingDecision}
+                className={`rounded-lg px-4 py-2 text-sm font-medium text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${getDecisionModalButtonStyle()}`}
+              >
+                {submittingDecision ? "Submitting..." : "Submit Decision"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {alertModal.open && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-md rounded-2xl border bg-white p-6 shadow-2xl">
+            <div
+              className={`mb-4 flex h-12 w-12 items-center justify-center rounded-full ${getAlertIconStyle()}`}
+            >
+              {getAlertIcon()}
+            </div>
+
+            <h2 className="text-lg font-semibold text-zinc-900">
+              {alertModal.title}
+            </h2>
+
+            <p className="mt-2 text-sm leading-6 text-zinc-600">
+              {alertModal.message}
+            </p>
+
+            <div className="mt-5 flex justify-end">
+              <button
+                type="button"
+                onClick={closeAlertModal}
+                className={`rounded-lg px-4 py-2 text-sm font-medium text-white transition ${getAlertButtonStyle()}`}
+              >
+                OK
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </main>

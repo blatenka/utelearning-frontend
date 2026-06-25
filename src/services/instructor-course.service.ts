@@ -167,6 +167,16 @@ export type UploadSignatureResponse = {
   resourceType: "image" | "video" | "raw";
 };
 
+export type InstructorCourseLatestReview = {
+  reviewId: string;
+  courseId: string;
+  courseStatus: string;
+  reviewStatus: string;
+  reviewNote?: string | null;
+  submittedAt: string;
+  reviewedAt?: string | null;
+};
+
 export const unwrapData = <T>(response: any): T => {
   return response?.data?.data ?? response?.data;
 };
@@ -346,4 +356,7 @@ export const instructorCourseService = {
   getUploadSignature(payload: UploadSignaturePayload) {
     return api.post("/v1/upload/signature", payload);
   },
+  getLatestCourseReview(courseId: string) {
+  return api.get(`/v1/instructor/courses/${courseId}/reviews/latest`);
+  }
 };
