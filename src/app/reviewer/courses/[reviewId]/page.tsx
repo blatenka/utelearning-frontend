@@ -13,10 +13,7 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "@/providers/AuthProvider";
-import {
-  reviewerCourseService,
-  unwrapData,
-} from "@/services/review.service";
+import { reviewerCourseService, unwrapData } from "@/services/review.service";
 
 import type {
   ReviewDecisionStatus,
@@ -601,7 +598,7 @@ export default function ReviewerCourseWorkspacePage() {
                   <p className="mb-2 text-sm font-medium text-zinc-900">
                     Description
                   </p>
-                  <p className="whitespace-pre-line text-sm leading-6 text-zinc-600">
+                  <p className="whitespace-pre-line break-words text-sm leading-6 text-zinc-600">
                     {course.description || "No description."}
                   </p>
                 </div>
@@ -668,7 +665,7 @@ export default function ReviewerCourseWorkspacePage() {
                       </div>
 
                       {section.description && (
-                        <p className="mt-1 text-sm text-zinc-500">
+                        <p className="mt-1 break-words text-sm text-zinc-500">
                           {section.description}
                         </p>
                       )}
@@ -697,7 +694,7 @@ export default function ReviewerCourseWorkspacePage() {
                               </div>
 
                               {lesson.description && (
-                                <p className="mt-1 text-sm text-zinc-500">
+                                <p className="mt-1 break-words text-sm text-zinc-500">
                                   {lesson.description}
                                 </p>
                               )}
@@ -721,7 +718,7 @@ export default function ReviewerCourseWorkspacePage() {
                                         rel="noreferrer"
                                         className="block rounded-md border bg-zinc-50 px-3 py-2 text-sm transition hover:bg-zinc-100"
                                       >
-                                        <span className="font-medium text-zinc-900">
+                                        <span className="break-words font-medium text-zinc-900">
                                           {file.filename || "Open media"}
                                         </span>
 
@@ -759,7 +756,7 @@ export default function ReviewerCourseWorkspacePage() {
           </section>
 
           <aside className="space-y-6">
-            <div className="sticky top-6 rounded-2xl border bg-white p-6 shadow-sm">
+            <div className="sticky top-6 max-h-[calc(100vh-3rem)] overflow-y-auto rounded-2xl border bg-white p-6 shadow-sm">
               <h2 className="text-xl font-semibold text-zinc-900">
                 Review Decision
               </h2>
@@ -820,7 +817,7 @@ export default function ReviewerCourseWorkspacePage() {
                     }
                     rows={8}
                     maxLength={10000}
-                    className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
+                    className="w-full resize-y rounded-lg border border-zinc-300 px-3 py-2 text-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
                   />
 
                   <div className="mt-1 flex justify-between text-xs text-zinc-500">
@@ -848,87 +845,97 @@ export default function ReviewerCourseWorkspacePage() {
       )}
 
       {confirmDecisionModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <div className="w-full max-w-lg rounded-2xl border bg-white p-6 shadow-2xl">
-            <div
-              className={`mb-4 flex h-12 w-12 items-center justify-center rounded-full ${getDecisionModalIconStyle()}`}
-            >
-              {getDecisionModalIcon()}
-            </div>
-
-            <h2 className="text-lg font-semibold text-zinc-900">
-              Confirm decision
-            </h2>
-
-            <p className="mt-2 text-sm leading-6 text-zinc-600">
-              Are you sure you want to submit this decision?
-            </p>
-
-            <div className="mt-4 rounded-xl border bg-zinc-50 p-4">
-              <p className="text-sm text-zinc-500">Decision</p>
-              <p className="mt-1 font-semibold text-zinc-900">{status}</p>
-
-              <p className="mt-4 text-sm text-zinc-500">Review note</p>
-              <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-zinc-700">
-                {reviewNote.trim() || "No note provided."}
-              </p>
-            </div>
-
-            {status === "REJECTED" && (
-              <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-800">
-                Rejected courses may become archived. The instructor may not be
-                able to edit this course again, so make sure your note is clear.
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 px-4 py-6">
+          <div className="mx-auto flex min-h-full max-w-lg items-center justify-center">
+            <div className="max-h-[90vh] w-full overflow-y-auto rounded-2xl border bg-white p-6 shadow-2xl">
+              <div
+                className={`mb-4 flex h-12 w-12 items-center justify-center rounded-full ${getDecisionModalIconStyle()}`}
+              >
+                {getDecisionModalIcon()}
               </div>
-            )}
 
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={closeConfirmDecisionModal}
-                disabled={submittingDecision}
-                className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Cancel
-              </button>
+              <h2 className="text-lg font-semibold text-zinc-900">
+                Confirm decision
+              </h2>
 
-              <button
-                type="button"
-                onClick={confirmSubmitDecision}
-                disabled={submittingDecision}
-                className={`rounded-lg px-4 py-2 text-sm font-medium text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${getDecisionModalButtonStyle()}`}
-              >
-                {submittingDecision ? "Submitting..." : "Submit Decision"}
-              </button>
+              <p className="mt-2 text-sm leading-6 text-zinc-600">
+                Are you sure you want to submit this decision?
+              </p>
+
+              <div className="mt-4 rounded-xl border bg-zinc-50 p-4">
+                <p className="text-sm text-zinc-500">Decision</p>
+                <p className="mt-1 font-semibold text-zinc-900">{status}</p>
+
+                <p className="mt-4 text-sm text-zinc-500">Review note</p>
+
+                <div className="mt-1 max-h-56 overflow-y-auto rounded-lg border bg-white p-3">
+                  <p className="whitespace-pre-wrap break-words text-sm leading-6 text-zinc-700">
+                    {reviewNote.trim() || "No note provided."}
+                  </p>
+                </div>
+              </div>
+
+              {status === "REJECTED" && (
+                <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-800">
+                  Rejected courses may become archived. The instructor may not
+                  be able to edit this course again, so make sure your note is
+                  clear.
+                </div>
+              )}
+
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={closeConfirmDecisionModal}
+                  disabled={submittingDecision}
+                  className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={confirmSubmitDecision}
+                  disabled={submittingDecision}
+                  className={`rounded-lg px-4 py-2 text-sm font-medium text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${getDecisionModalButtonStyle()}`}
+                >
+                  {submittingDecision ? "Submitting..." : "Submit Decision"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
       {alertModal.open && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4">
-          <div className="w-full max-w-md rounded-2xl border bg-white p-6 shadow-2xl">
-            <div
-              className={`mb-4 flex h-12 w-12 items-center justify-center rounded-full ${getAlertIconStyle()}`}
-            >
-              {getAlertIcon()}
-            </div>
-
-            <h2 className="text-lg font-semibold text-zinc-900">
-              {alertModal.title}
-            </h2>
-
-            <p className="mt-2 text-sm leading-6 text-zinc-600">
-              {alertModal.message}
-            </p>
-
-            <div className="mt-5 flex justify-end">
-              <button
-                type="button"
-                onClick={closeAlertModal}
-                className={`rounded-lg px-4 py-2 text-sm font-medium text-white transition ${getAlertButtonStyle()}`}
+        <div className="fixed inset-0 z-[60] overflow-y-auto bg-black/50 px-4 py-6">
+          <div className="mx-auto flex min-h-full max-w-md items-center justify-center">
+            <div className="max-h-[90vh] w-full overflow-y-auto rounded-2xl border bg-white p-6 shadow-2xl">
+              <div
+                className={`mb-4 flex h-12 w-12 items-center justify-center rounded-full ${getAlertIconStyle()}`}
               >
-                OK
-              </button>
+                {getAlertIcon()}
+              </div>
+
+              <h2 className="text-lg font-semibold text-zinc-900">
+                {alertModal.title}
+              </h2>
+
+              <div className="mt-2 max-h-56 overflow-y-auto">
+                <p className="whitespace-pre-wrap break-words text-sm leading-6 text-zinc-600">
+                  {alertModal.message}
+                </p>
+              </div>
+
+              <div className="mt-5 flex justify-end">
+                <button
+                  type="button"
+                  onClick={closeAlertModal}
+                  className={`rounded-lg px-4 py-2 text-sm font-medium text-white transition ${getAlertButtonStyle()}`}
+                >
+                  OK
+                </button>
+              </div>
             </div>
           </div>
         </div>
