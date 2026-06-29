@@ -78,6 +78,16 @@ export default function ProfilePage() {
     }
   }
 
+  function formatGender(value?: string | null) {
+    if (!value) return "Not specified";
+
+    return value
+      .toLowerCase()
+      .split("_")
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
+  }
+
   function getErrorMessage(err: any, fallback: string) {
     const message = err?.response?.data?.message;
 
@@ -173,91 +183,91 @@ export default function ProfilePage() {
   }
 
   async function handleAvatarUpload() {
-  if (!avatarFile || !user) {
-    setError("Please select an image first.");
-    return;
+    if (!avatarFile || !user) {
+      setError("Please select an image first.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const publicId = `user_${user.id}`;
+
+      const sigRes = await api.post("/v1/upload/signature", {
+        entityType: "user",
+        entityId: user.id,
+        resourceType: "image",
+        subFolder: "avatars",
+        publicId,
+      });
+
+      const {
+        signature,
+        timestamp,
+        cloudName,
+        apiKey,
+        uploadPreset,
+        folder,
+        resourceType,
+      } = sigRes.data.data;
+
+      if (!signature || !timestamp || !cloudName || !apiKey || !folder) {
+        throw new Error("Invalid upload signature response");
+      }
+
+      const fd = new FormData();
+      fd.append("file", avatarFile);
+      fd.append("api_key", apiKey);
+      fd.append("timestamp", String(timestamp));
+      fd.append("signature", signature);
+      fd.append("folder", folder);
+      fd.append("public_id", publicId);
+
+      if (uploadPreset) {
+        fd.append("upload_preset", uploadPreset);
+      }
+
+      const cloudUrl = `https://api.cloudinary.com/v1_1/${cloudName}/${
+        resourceType || "image"
+      }/upload`;
+
+      const uploadRes = await fetch(cloudUrl, {
+        method: "POST",
+        body: fd,
+      });
+
+      const uploadJson = await uploadRes.json();
+
+      if (!uploadRes.ok) {
+        throw new Error(uploadJson?.error?.message || "Cloudinary upload failed");
+      }
+
+      const avatarUrl = uploadJson.secure_url;
+
+      if (!avatarUrl) {
+        throw new Error("Cloudinary did not return avatar URL");
+      }
+
+      await api.patch("/v1/users/me", { avatarUrl });
+
+      await refreshMe();
+
+      setProfile((prev: any) => ({
+        ...prev,
+        avatarUrl,
+      }));
+
+      setAvatarFile(null);
+      setSuccess("Avatar updated successfully!");
+    } catch (err: any) {
+      console.error(err);
+      setError(getErrorMessage(err, "Upload failed"));
+    } finally {
+      setLoading(false);
+    }
   }
-
-  setLoading(true);
-  setError(null);
-  setSuccess(null);
-
-  try {
-    const publicId = `user_${user.id}`;
-
-    const sigRes = await api.post("/v1/upload/signature", {
-      entityType: "user",
-      entityId: user.id,
-      resourceType: "image",
-      subFolder: "avatars",
-      publicId,
-    });
-
-    const {
-      signature,
-      timestamp,
-      cloudName,
-      apiKey,
-      uploadPreset,
-      folder,
-      resourceType,
-    } = sigRes.data.data;
-
-    if (!signature || !timestamp || !cloudName || !apiKey || !folder) {
-      throw new Error("Invalid upload signature response");
-    }
-
-    const fd = new FormData();
-    fd.append("file", avatarFile);
-    fd.append("api_key", apiKey);
-    fd.append("timestamp", String(timestamp));
-    fd.append("signature", signature);
-    fd.append("folder", folder);
-    fd.append("public_id", publicId);
-
-    if (uploadPreset) {
-      fd.append("upload_preset", uploadPreset);
-    }
-
-    const cloudUrl = `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType || "image"}/upload`;
-
-    const uploadRes = await fetch(cloudUrl, {
-      method: "POST",
-      body: fd,
-    });
-
-    const uploadJson = await uploadRes.json();
-
-    if (!uploadRes.ok) {
-      throw new Error(
-        uploadJson?.error?.message || "Cloudinary upload failed",
-      );
-    }
-
-    const avatarUrl = uploadJson.secure_url;
-
-    if (!avatarUrl) {
-      throw new Error("Cloudinary did not return avatar URL");
-    }
-
-    await api.patch("/v1/users/me", { avatarUrl });
-
-    await refreshMe();
-
-    setProfile((prev: any) => ({
-      ...prev,
-      avatarUrl,
-    }));
-
-    setAvatarFile(null);
-    setSuccess("Avatar updated successfully!");
-  } catch (err: any) {
-    console.error(err);
-    setError(getErrorMessage(err, "Upload failed"));
-  } finally {
-    setLoading(false);
-  }
-}
 
   if (authLoading || profileLoading) {
     return (
@@ -331,10 +341,6 @@ export default function ProfilePage() {
               <p className="mt-1 text-sm text-zinc-500">
                 {profile?.email || "No email"}
               </p>
-
-              <div className="mt-3 inline-flex rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700">
-                {profile?.role || "USER"}
-              </div>
             </div>
 
             <div className="mt-8 border-t border-zinc-200 pt-6">
@@ -436,10 +442,7 @@ export default function ProfilePage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <InfoItem label="Full Name" value={profile?.fullName || "N/A"} />
                 <InfoItem label="Email" value={profile?.email || "N/A"} />
-                <InfoItem
-                  label="Gender"
-                  value={profile?.gender || "Not specified"}
-                />
+                <InfoItem label="Gender" value={formatGender(profile?.gender)} />
                 <InfoItem
                   label="Date of Birth"
                   value={
@@ -450,13 +453,11 @@ export default function ProfilePage() {
                             year: "numeric",
                             month: "long",
                             day: "numeric",
-                          },
+                          }
                         )
                       : "Not specified"
                   }
                 />
-                <InfoItem label="Role" value={profile?.role || "N/A"} />
-                <InfoItem label="User ID" value={profile?.id || user.id} />
               </div>
             ) : (
               <form onSubmit={handleProfileUpdate} className="space-y-5">
@@ -497,7 +498,7 @@ export default function ProfilePage() {
                     <option value="">Select Gender</option>
                     {GENDERS.map((g) => (
                       <option key={g} value={g}>
-                        {g}
+                        {formatGender(g)}
                       </option>
                     ))}
                   </select>

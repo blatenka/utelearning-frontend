@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { CheckCircle2, Send, XCircle } from "lucide-react";
 
@@ -26,6 +26,63 @@ type SuccessModal = {
   message: string;
   redirectTo?: string;
 } | null;
+
+const submittableCourseStatuses = [
+  "DRAFT",
+  "CHANGES_REQUESTED",
+  "REJECTED",
+  "NEEDS_CHANGES",
+  "NEEDS_REVISION",
+  "REVISION_REQUIRED",
+];
+
+const lockedSubmitStatuses = [
+  "PENDING_REVIEW",
+  "SUBMITTED_FOR_REVIEW",
+  "IN_REVIEW",
+  "UNDER_REVIEW",
+  "APPROVED",
+  "PUBLISHED",
+];
+
+function normalizeCourseStatus(status?: string | null) {
+  return String(status || "").toUpperCase();
+}
+
+function canSubmitCourse(status?: string | null) {
+  const normalizedStatus = normalizeCourseStatus(status);
+
+  if (!normalizedStatus) return true;
+
+  return submittableCourseStatuses.includes(normalizedStatus);
+}
+
+function getSubmitLockedMessage(status?: string | null) {
+  const normalizedStatus = normalizeCourseStatus(status);
+
+  if (
+    normalizedStatus === "PENDING_REVIEW" ||
+    normalizedStatus === "SUBMITTED_FOR_REVIEW" ||
+    normalizedStatus === "IN_REVIEW" ||
+    normalizedStatus === "UNDER_REVIEW"
+  ) {
+    return "This course is already under review. You cannot submit it again.";
+  }
+
+  if (normalizedStatus === "APPROVED" || normalizedStatus === "PUBLISHED") {
+    return "This course has already been approved or published. You cannot submit it again.";
+  }
+
+  if (lockedSubmitStatuses.includes(normalizedStatus)) {
+    return "This course cannot be submitted in its current status.";
+  }
+
+  if (normalizedStatus && !submittableCourseStatuses.includes(normalizedStatus)) {
+    return `This course cannot be submitted in its current status: ${normalizedStatus}.`;
+  }
+
+  return "";
+}
 
 function getErrorMessage(err: unknown, fallback: string) {
   if (
@@ -76,11 +133,7 @@ function normalizeFileMedia(file: any): PreviewFile | null {
       file.name ??
       null,
     mimeType: file.mimeType ?? file.mimetype ?? file.contentType ?? null,
-    sizeInBytes:
-      file.sizeInBytes ??
-      file.size ??
-      file.bytes ??
-      null,
+    sizeInBytes: file.sizeInBytes ?? file.size ?? file.bytes ?? null,
   };
 }
 
@@ -105,6 +158,7 @@ function normalizeInstructorCourse(
     level: course.level ?? null,
     language: course.language ?? null,
     certificateEnabled: Boolean(course.certificateEnabled),
+    status: course.status ?? null,
     sections: sections.map((section) => ({
       id: section.id,
       title: section.title,
@@ -147,6 +201,14 @@ export default function InstructorCoursePreviewPage() {
   );
   const [successModal, setSuccessModal] = useState<SuccessModal>(null);
 
+  const submitAllowed = useMemo(() => {
+    return canSubmitCourse(course?.status);
+  }, [course?.status]);
+
+  const submitLockedMessage = useMemo(() => {
+    return getSubmitLockedMessage(course?.status);
+  }, [course?.status]);
+
   function showError(message: string) {
     setSuccessModal(null);
     setErrorModalMessage(message);
@@ -168,6 +230,17 @@ export default function InstructorCoursePreviewPage() {
     if (redirectTo) {
       router.replace(redirectTo);
     }
+  }
+
+  function ensureCanSubmitCourse() {
+    if (submitAllowed) return true;
+
+    showError(
+      submitLockedMessage ||
+        "This course cannot be submitted in its current status."
+    );
+
+    return false;
   }
 
   async function fetchLessonFiles(sectionId: string, lessonId: string) {
@@ -266,10 +339,17 @@ export default function InstructorCoursePreviewPage() {
   }
 
   function handleSubmitForReview() {
+    if (!ensureCanSubmitCourse()) return;
+
     setShowSubmitReviewModal(true);
   }
 
   async function confirmSubmitForReview() {
+    if (!ensureCanSubmitCourse()) {
+      setShowSubmitReviewModal(false);
+      return;
+    }
+
     try {
       setSubmittingReview(true);
       setErrorModalMessage(null);
@@ -358,19 +438,27 @@ export default function InstructorCoursePreviewPage() {
         backLabel="Back to Edit Course"
         onBack={() => router.push(`/instructor/courses/${courseId}/edit`)}
         rightAction={
-          <button
-            type="button"
-            onClick={handleSubmitForReview}
-            disabled={submittingReview}
-            className="inline-flex items-center rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <Send className="mr-2 h-4 w-4" />
-            {submittingReview ? "Submitting..." : "Submit for Review"}
-          </button>
+          submitAllowed ? (
+            <button
+              type="button"
+              onClick={handleSubmitForReview}
+              disabled={submittingReview}
+              title="Submit course for review"
+              className="inline-flex items-center rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Send className="mr-2 h-4 w-4" />
+              {submittingReview ? "Submitting..." : "Submit for Review"}
+            </button>
+          ) : (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800">
+              {submitLockedMessage ||
+                "This course cannot be submitted in its current status."}
+            </div>
+          )
         }
       />
 
-      {showSubmitReviewModal && (
+      {showSubmitReviewModal && submitAllowed && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
           <div className="w-full max-w-md rounded-2xl border bg-white p-6 shadow-xl">
             <h2 className="text-lg font-semibold text-zinc-900">
@@ -388,6 +476,10 @@ export default function InstructorCoursePreviewPage() {
               </p>
 
               <p className="mt-1 text-xs text-zinc-500">
+                Status: {course.status || "DRAFT"}
+              </p>
+
+              <p className="mt-1 text-xs text-zinc-500">
                 Lessons:{" "}
                 {course.sections?.reduce(
                   (total, section) => total + (section.lessons?.length ?? 0),
@@ -401,7 +493,7 @@ export default function InstructorCoursePreviewPage() {
                 type="button"
                 onClick={() => setShowSubmitReviewModal(false)}
                 disabled={submittingReview}
-                className="rounded-lg border px-4 py-2 text-sm hover:bg-zinc-50 disabled:opacity-50"
+                className="rounded-lg border px-4 py-2 text-sm hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -409,8 +501,8 @@ export default function InstructorCoursePreviewPage() {
               <button
                 type="button"
                 onClick={confirmSubmitForReview}
-                disabled={submittingReview}
-                className="inline-flex items-center rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
+                disabled={submittingReview || !submitAllowed}
+                className="inline-flex items-center rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Send className="mr-2 h-4 w-4" />
                 {submittingReview ? "Submitting..." : "Submit"}

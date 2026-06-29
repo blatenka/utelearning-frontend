@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   ArrowLeft,
   BookOpen,
   CheckCircle2,
-  ChevronLeft,
+  ChevronDown,
   ChevronRight,
   ExternalLink,
   FileText,
@@ -50,35 +50,97 @@ export type PreviewCourse = {
   level?: string | null;
   language?: string | null;
   certificateEnabled?: boolean;
+  status?: string | null;
   sections?: PreviewSection[];
 };
 
-type FlatLesson = {
-  sectionId: string;
-  sectionTitle: string;
-  sectionIndex: number;
-  lesson: PreviewLesson;
-  lessonIndex: number;
+type NormalizedMediaType =
+  | "IMAGE"
+  | "VIDEO"
+  | "DOCUMENT"
+  | "AUDIO"
+  | "OTHER"
+  | "YOUTUBE";
+
+type CourseSummary = {
+  sectionCount: number;
+  lessonCount: number;
+  mediaCount: number;
 };
 
-function flattenLessons(course: PreviewCourse | null): FlatLesson[] {
-  if (!course?.sections?.length) return [];
+const submittableCourseStatuses = [
+  "DRAFT",
+  "CHANGES_REQUESTED",
+  "REJECTED",
+  "NEEDS_CHANGES",
+  "NEEDS_REVISION",
+  "REVISION_REQUIRED",
+];
 
-  return course.sections.flatMap((section, sectionIndex) =>
-    (section.lessons ?? []).map((lesson, lessonIndex) => ({
-      sectionId: section.id,
-      sectionTitle: section.title,
-      sectionIndex,
-      lesson,
-      lessonIndex,
-    }))
+function normalizeCourseStatus(status?: string | null) {
+  return String(status || "").toUpperCase();
+}
+
+function canSubmitCourse(status?: string | null) {
+  const normalizedStatus = normalizeCourseStatus(status);
+
+  if (!normalizedStatus) return true;
+
+  return submittableCourseStatuses.includes(normalizedStatus);
+}
+
+function getSubmitLockedMessage(status?: string | null) {
+  const normalizedStatus = normalizeCourseStatus(status);
+
+  if (
+    normalizedStatus === "PENDING_REVIEW" ||
+    normalizedStatus === "SUBMITTED_FOR_REVIEW" ||
+    normalizedStatus === "IN_REVIEW" ||
+    normalizedStatus === "UNDER_REVIEW"
+  ) {
+    return "This course is already under review. You cannot submit it again.";
+  }
+
+  if (normalizedStatus === "APPROVED" || normalizedStatus === "PUBLISHED") {
+    return "This course has already been approved or published. You cannot submit it again.";
+  }
+
+  if (normalizedStatus) {
+    return `This course cannot be submitted in its current status: ${normalizedStatus}.`;
+  }
+
+  return "";
+}
+
+function getCourseSummary(course: PreviewCourse): CourseSummary {
+  const sections = course.sections ?? [];
+
+  const lessonCount = sections.reduce(
+    (total, section) => total + (section.lessons?.length ?? 0),
+    0
   );
+
+  const mediaCount = sections.reduce((sectionTotal, section) => {
+    return (
+      sectionTotal +
+      (section.lessons ?? []).reduce(
+        (lessonTotal, lesson) => lessonTotal + (lesson.files?.length ?? 0),
+        0
+      )
+    );
+  }, 0);
+
+  return {
+    sectionCount: sections.length,
+    lessonCount,
+    mediaCount,
+  };
 }
 
 function isYoutubeUrl(url: string) {
   try {
     const parsedUrl = new URL(url);
-    const hostname = parsedUrl.hostname.replace("www.", "");
+    const hostname = parsedUrl.hostname.replace("www.", "").toLowerCase();
 
     return (
       hostname === "youtube.com" ||
@@ -94,7 +156,7 @@ function isYoutubeUrl(url: string) {
 function getYoutubeEmbedUrl(url: string) {
   try {
     const parsedUrl = new URL(url);
-    const hostname = parsedUrl.hostname.replace("www.", "");
+    const hostname = parsedUrl.hostname.replace("www.", "").toLowerCase();
 
     let videoId = "";
 
@@ -120,22 +182,21 @@ function getYoutubeEmbedUrl(url: string) {
       }
     }
 
+    videoId = videoId.split("?")[0].split("&")[0].trim();
+
     if (!videoId) return null;
+
+    const embedUrl = new URL(`https://www.youtube.com/embed/${videoId}`);
 
     const start =
       parsedUrl.searchParams.get("start") || parsedUrl.searchParams.get("t");
 
-    let startSeconds = "";
-
     if (start) {
       const match = start.match(/^(\d+)s?$/);
-      if (match) startSeconds = match[1];
-    }
 
-    const embedUrl = new URL(`https://www.youtube.com/embed/${videoId}`);
-
-    if (startSeconds) {
-      embedUrl.searchParams.set("start", startSeconds);
+      if (match) {
+        embedUrl.searchParams.set("start", match[1]);
+      }
     }
 
     return embedUrl.toString();
@@ -144,33 +205,71 @@ function getYoutubeEmbedUrl(url: string) {
   }
 }
 
-function getPrimaryFile(lesson: PreviewLesson | null) {
-  if (!lesson?.files?.length) return null;
+function normalizeMediaType(file: PreviewFile): NormalizedMediaType {
+  const rawType = String(file.type || "").toUpperCase();
+  const url = file.url.toLowerCase().split("?")[0];
+  const mimeType = file.mimeType?.toLowerCase() || "";
+  const filename = file.filename?.toLowerCase() || "";
 
-  const youtubeVideo = lesson.files.find(
-    (file) => file.type === "VIDEO" && isYoutubeUrl(file.url)
-  );
-  if (youtubeVideo) return youtubeVideo;
+  if (isYoutubeUrl(file.url)) return "YOUTUBE";
 
-  const video = lesson.files.find((file) => file.type === "VIDEO");
-  if (video) return video;
+  if (
+    rawType === "IMAGE" ||
+    mimeType.startsWith("image/") ||
+    /\.(jpg|jpeg|png|webp|gif|svg)$/.test(url) ||
+    /\.(jpg|jpeg|png|webp|gif|svg)$/.test(filename)
+  ) {
+    return "IMAGE";
+  }
 
-  const image = lesson.files.find((file) => file.type === "IMAGE");
-  if (image) return image;
+  if (
+    rawType === "VIDEO" ||
+    mimeType.startsWith("video/") ||
+    /\.(mp4|mov|webm|mkv|avi)$/.test(url) ||
+    /\.(mp4|mov|webm|mkv|avi)$/.test(filename)
+  ) {
+    return "VIDEO";
+  }
 
-  const audio = lesson.files.find((file) => file.type === "AUDIO");
-  if (audio) return audio;
+  if (
+    rawType === "AUDIO" ||
+    mimeType.startsWith("audio/") ||
+    /\.(mp3|wav|ogg|m4a|aac)$/.test(url) ||
+    /\.(mp3|wav|ogg|m4a|aac)$/.test(filename)
+  ) {
+    return "AUDIO";
+  }
 
-  const document = lesson.files.find((file) => file.type === "DOCUMENT");
-  if (document) return document;
+  if (
+    rawType === "DOCUMENT" ||
+    rawType === "RAW" ||
+    mimeType.includes("pdf") ||
+    mimeType.includes("officedocument") ||
+    mimeType.includes("msword") ||
+    mimeType.includes("ms-excel") ||
+    mimeType.includes("ms-powerpoint") ||
+    /\.(pdf|doc|docx|ppt|pptx|xls|xlsx|txt|csv)$/.test(url) ||
+    /\.(pdf|doc|docx|ppt|pptx|xls|xlsx|txt|csv)$/.test(filename)
+  ) {
+    return "DOCUMENT";
+  }
 
-  return lesson.files[0];
+  return "OTHER";
 }
 
-function renderFileIcon(type?: string) {
-  if (type === "VIDEO") return <PlayCircle className="h-4 w-4" />;
-  if (type === "IMAGE") return <ImageIcon className="h-4 w-4" />;
-  if (type === "AUDIO") return <Music className="h-4 w-4" />;
+function renderFileIcon(type: NormalizedMediaType) {
+  if (type === "VIDEO" || type === "YOUTUBE") {
+    return <PlayCircle className="h-4 w-4" />;
+  }
+
+  if (type === "IMAGE") {
+    return <ImageIcon className="h-4 w-4" />;
+  }
+
+  if (type === "AUDIO") {
+    return <Music className="h-4 w-4" />;
+  }
+
   return <FileText className="h-4 w-4" />;
 }
 
@@ -182,101 +281,102 @@ function formatFileSize(size?: number | null) {
 }
 
 function isPdfFile(file: PreviewFile) {
+  const type = normalizeMediaType(file);
+  const url = file.url.toLowerCase().split("?")[0];
+  const filename = file.filename?.toLowerCase() || "";
+  const mimeType = file.mimeType?.toLowerCase() || "";
+
   return (
-    file.type === "DOCUMENT" &&
-    (file.mimeType?.toLowerCase().includes("pdf") ||
-      file.filename?.toLowerCase().endsWith(".pdf") ||
-      file.url.toLowerCase().split("?")[0].endsWith(".pdf"))
+    type === "DOCUMENT" &&
+    (mimeType.includes("pdf") ||
+      filename.endsWith(".pdf") ||
+      url.endsWith(".pdf"))
   );
 }
 
-function renderLearningFile(file: PreviewFile | null) {
-  if (!file) {
-    return (
-      <div className="flex min-h-[320px] flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-300 bg-white p-8 text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-zinc-100">
-          <BookOpen className="h-8 w-8 text-zinc-400" />
-        </div>
+function MediaTypePill({ file }: { file: PreviewFile }) {
+  const type = normalizeMediaType(file);
 
-        <h2 className="mt-5 text-xl font-semibold text-zinc-900">
-          No media available
-        </h2>
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700">
+      {renderFileIcon(type)}
+      {type}
+    </span>
+  );
+}
 
-        <p className="mt-2 max-w-md text-sm leading-6 text-zinc-500">
-          This lesson does not have video, image, audio, or document files yet.
-        </p>
-      </div>
-    );
-  }
+function renderLearningFile(file: PreviewFile) {
+  const type = normalizeMediaType(file);
 
-  if (file.type === "VIDEO") {
+  if (type === "YOUTUBE") {
     const youtubeEmbedUrl = getYoutubeEmbedUrl(file.url);
 
     if (youtubeEmbedUrl) {
       return (
-        <div className="overflow-hidden rounded-2xl border bg-black shadow-sm">
+        <div className="w-full overflow-hidden rounded-xl border bg-black">
           <iframe
             src={youtubeEmbedUrl}
             title={file.filename || "YouTube video"}
-            className="aspect-video w-full bg-black"
+            className="aspect-video w-full max-w-full bg-black"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
             allowFullScreen
           />
         </div>
       );
     }
+  }
 
+  if (type === "VIDEO") {
     return (
-      <div className="overflow-hidden rounded-2xl border bg-black shadow-sm">
+      <div className="w-full overflow-hidden rounded-xl border bg-black">
         <video
           src={file.url}
           controls
-          className="aspect-video w-full bg-black"
+          className="aspect-video w-full max-w-full bg-black"
         />
       </div>
     );
   }
 
-  if (file.type === "IMAGE") {
+  if (type === "IMAGE") {
     return (
-      <div className="rounded-2xl border bg-white p-4 shadow-sm">
+      <div className="w-full overflow-hidden rounded-xl border bg-white p-3">
         <img
           src={file.url}
           alt={file.filename || "Lesson image"}
-          className="max-h-[520px] w-full rounded-xl object-contain"
+          className="max-h-[420px] w-full max-w-full rounded-lg object-contain"
         />
       </div>
     );
   }
 
-  if (file.type === "AUDIO") {
+  if (type === "AUDIO") {
     return (
-      <div className="rounded-2xl border bg-white p-8 shadow-sm">
-        <div className="flex flex-col items-center text-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-zinc-100">
-            <Music className="h-8 w-8 text-zinc-500" />
+      <div className="w-full overflow-hidden rounded-xl border bg-white p-5">
+        <div className="mb-4 flex min-w-0 items-center gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-zinc-100">
+            <Music className="h-5 w-5 text-zinc-500" />
           </div>
 
-          <h2 className="mt-5 text-lg font-semibold text-zinc-900">
-            {file.filename || "Audio lesson"}
-          </h2>
-
-          <p className="mt-2 text-sm text-zinc-500">
-            Listen to the attached audio file.
-          </p>
-
-          <audio controls src={file.url} className="mt-6 w-full max-w-2xl" />
+          <div className="min-w-0">
+            <h4 className="truncate font-semibold text-zinc-900">
+              {file.filename || "Audio lesson"}
+            </h4>
+            <p className="text-sm text-zinc-500">Audio resource</p>
+          </div>
         </div>
+
+        <audio controls src={file.url} className="w-full max-w-full" />
       </div>
     );
   }
 
   if (isPdfFile(file)) {
     return (
-      <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
+      <div className="w-full overflow-hidden rounded-xl border bg-white">
         <iframe
           src={file.url}
-          className="h-[620px] w-full bg-white"
+          className="h-[460px] w-full max-w-full bg-white"
           title={file.filename || "PDF document"}
         />
       </div>
@@ -284,14 +384,14 @@ function renderLearningFile(file: PreviewFile | null) {
   }
 
   return (
-    <div className="flex min-h-[300px] flex-col items-center justify-center rounded-2xl border bg-white p-8 text-center shadow-sm">
-      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-zinc-100">
-        <FileText className="h-8 w-8 text-zinc-400" />
+    <div className="flex min-h-[160px] w-full flex-col items-center justify-center overflow-hidden rounded-xl border bg-white p-6 text-center">
+      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-zinc-100">
+        <FileText className="h-6 w-6 text-zinc-400" />
       </div>
 
-      <h2 className="mt-5 text-lg font-semibold text-zinc-900">
+      <h4 className="mt-4 max-w-full break-words font-semibold text-zinc-900">
         {file.filename || "Attached file"}
-      </h2>
+      </h4>
 
       <p className="mt-2 text-sm text-zinc-500">
         This file cannot be previewed directly.
@@ -301,7 +401,7 @@ function renderLearningFile(file: PreviewFile | null) {
         href={file.url}
         target="_blank"
         rel="noreferrer"
-        className="mt-5 inline-flex items-center rounded-xl bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-700"
+        className="mt-4 inline-flex items-center rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-700"
       >
         <ExternalLink className="mr-2 h-4 w-4" />
         Open file
@@ -310,114 +410,66 @@ function renderLearningFile(file: PreviewFile | null) {
   );
 }
 
-function getFileTypeLabel(file: PreviewFile | null) {
-  if (!file) return "No media";
-  if (file.type === "VIDEO" && isYoutubeUrl(file.url)) return "YOUTUBE";
-  return file.type || "OTHER";
-}
-
-function LessonSidebar({
-  sections,
-  selectedLessonId,
-  onSelectLesson,
-}: {
-  sections: PreviewSection[];
-  selectedLessonId?: string;
-  onSelectLesson: (lesson: PreviewLesson) => void;
-}) {
-  return (
-    <aside className="overflow-hidden rounded-2xl border bg-white shadow-sm">
-      <div className="border-b px-5 py-4">
-        <div className="flex items-center gap-2">
-          <ListVideo className="h-5 w-5 text-zinc-500" />
-          <h2 className="font-semibold text-zinc-950">Course Content</h2>
-        </div>
-
-        <p className="mt-1 text-sm text-zinc-500">
-          Select a lesson to preview.
-        </p>
+function LessonMediaList({ files }: { files?: PreviewFile[] }) {
+  if (!files?.length) {
+    return (
+      <div className="flex min-w-0 items-center gap-2 rounded-xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-4 text-sm text-zinc-500">
+        <LockKeyhole className="h-4 w-4 shrink-0" />
+        <span className="min-w-0 break-words">No media for this lesson.</span>
       </div>
+    );
+  }
 
-      {sections.length ? (
-        sections.map((section, sectionIndex) => (
-          <details
-            key={section.id}
-            open={sectionIndex === 0}
-            className="border-b last:border-b-0"
+  return (
+    <div className="grid min-w-0 gap-4">
+      {files.map((file, index) => {
+        const size = formatFileSize(file.sizeInBytes);
+
+        return (
+          <div
+            key={file.id || `${file.url}-${index}`}
+            className="min-w-0 overflow-hidden rounded-2xl border bg-zinc-50 p-4"
           >
-            <summary className="cursor-pointer bg-zinc-50 px-5 py-4 text-sm font-semibold text-zinc-900 transition hover:bg-zinc-100">
-              Section {sectionIndex + 1}: {section.title}
-            </summary>
+            <div className="mb-3 flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <MediaTypePill file={file} />
 
-            <div className="bg-white">
-              {section.lessons?.length ? (
-                section.lessons.map((lesson, lessonIndex) => {
-                  const active = selectedLessonId === lesson.id;
-                  const primaryFile = getPrimaryFile(lesson);
-
-                  return (
-                    <button
-                      key={lesson.id}
-                      type="button"
-                      onClick={() => onSelectLesson(lesson)}
-                      className={`flex w-full gap-3 border-t px-5 py-4 text-left transition ${
-                        active ? "bg-zinc-900 text-white" : "hover:bg-zinc-50"
-                      }`}
-                    >
-                      <div
-                        className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
-                          active
-                            ? "bg-white text-zinc-900"
-                            : "bg-zinc-100 text-zinc-600"
-                        }`}
-                      >
-                        {lessonIndex + 1}
-                      </div>
-
-                      <div className="min-w-0 flex-1">
-                        <p className="line-clamp-2 text-sm font-medium">
-                          {lesson.title}
-                        </p>
-
-                        <div
-                          className={`mt-2 flex items-center gap-2 text-xs ${
-                            active ? "text-zinc-200" : "text-zinc-500"
-                          }`}
-                        >
-                          {primaryFile ? (
-                            <>
-                              {renderFileIcon(primaryFile.type)}
-                              <span>{getFileTypeLabel(primaryFile)}</span>
-                            </>
-                          ) : (
-                            <>
-                              <LockKeyhole className="h-4 w-4" />
-                              <span>No media</span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })
-              ) : (
-                <div className="flex items-center gap-2 px-5 py-4 text-sm text-zinc-500">
-                  <LockKeyhole className="h-4 w-4" />
-                  No lessons
+                  <p className="min-w-0 break-words font-semibold text-zinc-900">
+                    {file.filename || `Resource ${index + 1}`}
+                  </p>
                 </div>
-              )}
+
+                <p className="mt-2 max-w-full break-all text-xs leading-5 text-zinc-500">
+                  {file.url}
+                </p>
+
+                <div className="mt-1 flex flex-wrap gap-2 text-xs text-zinc-500">
+                  {file.mimeType && (
+                    <span className="break-all">{file.mimeType}</span>
+                  )}
+                  {size && <span>{size}</span>}
+                </div>
+              </div>
+
+              <a
+                href={file.url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex w-fit shrink-0 items-center justify-center rounded-lg border bg-white px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100"
+              >
+                <ExternalLink className="mr-2 h-4 w-4" />
+                Open
+              </a>
             </div>
-          </details>
-        ))
-      ) : (
-        <div className="px-5 py-10 text-center">
-          <BookOpen className="mx-auto h-8 w-8 text-zinc-300" />
-          <p className="mt-3 text-sm text-zinc-500">
-            No learning content available.
-          </p>
-        </div>
-      )}
-    </aside>
+
+            <div className="min-w-0 overflow-hidden">
+              {renderLearningFile(file)}
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -432,250 +484,305 @@ export default function CoursePreviewViewer({
   onBack: () => void;
   rightAction?: React.ReactNode;
 }) {
-  const flatLessons = useMemo(() => flattenLessons(course), [course]);
+  const summary = useMemo(() => getCourseSummary(course), [course]);
+  const submitAllowed = canSubmitCourse(course.status);
+  const submitLockedMessage = getSubmitLockedMessage(course.status);
 
-  const [selectedLesson, setSelectedLesson] = useState<PreviewLesson | null>(
-    flatLessons[0]?.lesson ?? null
-  );
+  const [collapsedSections, setCollapsedSections] = useState<
+    Record<string, boolean>
+  >({});
 
-  const [selectedFile, setSelectedFile] = useState<PreviewFile | null>(
-    getPrimaryFile(flatLessons[0]?.lesson ?? null)
-  );
+  function toggleSection(sectionId: string) {
+    setCollapsedSections((prev) => ({
+      ...prev,
+      [sectionId]: !prev[sectionId],
+    }));
+  }
 
-  useEffect(() => {
-    const firstLesson = flatLessons[0]?.lesson ?? null;
-    setSelectedLesson(firstLesson);
-    setSelectedFile(getPrimaryFile(firstLesson));
-  }, [course.id, flatLessons.length]);
+  function collapseAllSections() {
+    const next: Record<string, boolean> = {};
 
-  const currentLessonIndex = useMemo(() => {
-    if (!selectedLesson) return -1;
-    return flatLessons.findIndex((item) => item.lesson.id === selectedLesson.id);
-  }, [flatLessons, selectedLesson]);
+    (course.sections ?? []).forEach((section) => {
+      next[section.id] = true;
+    });
 
-  const currentFlatLesson = useMemo(() => {
-    if (currentLessonIndex < 0) return null;
-    return flatLessons[currentLessonIndex] ?? null;
-  }, [flatLessons, currentLessonIndex]);
+    setCollapsedSections(next);
+  }
 
-  const previousLesson = useMemo(() => {
-    if (currentLessonIndex <= 0) return null;
-    return flatLessons[currentLessonIndex - 1]?.lesson ?? null;
-  }, [flatLessons, currentLessonIndex]);
-
-  const nextLesson = useMemo(() => {
-    if (currentLessonIndex < 0) return null;
-    return flatLessons[currentLessonIndex + 1]?.lesson ?? null;
-  }, [flatLessons, currentLessonIndex]);
-
-  function selectLesson(lesson: PreviewLesson) {
-    setSelectedLesson(lesson);
-    setSelectedFile(getPrimaryFile(lesson));
+  function expandAllSections() {
+    setCollapsedSections({});
   }
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <button
-          type="button"
-          onClick={onBack}
-          className="inline-flex w-fit items-center rounded-full border bg-white px-3 py-1.5 text-sm font-medium text-zinc-600 transition hover:bg-zinc-50 hover:text-zinc-900"
-        >
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          {backLabel}
-        </button>
+    <div className="w-full max-w-full overflow-hidden">
+      <div className="mx-auto w-full max-w-5xl space-y-6 px-4 py-6 sm:px-6">
+        <div className="flex min-w-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <button
+            type="button"
+            onClick={onBack}
+            className="inline-flex w-fit items-center rounded-full border bg-white px-3 py-1.5 text-sm font-medium text-zinc-600 transition hover:bg-zinc-50 hover:text-zinc-900"
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            {backLabel}
+          </button>
 
-        {rightAction}
-      </div>
-
-      <section className="overflow-hidden rounded-2xl border bg-white shadow-sm">
-        {course.thumbnailUrl ? (
-          <img
-            src={course.thumbnailUrl}
-            alt={course.title}
-            className="aspect-video w-full object-cover"
-          />
-        ) : (
-          <div className="flex aspect-video items-center justify-center bg-zinc-900 text-white">
-            <BookOpen className="mr-2 h-6 w-6" />
-            Course Preview
-          </div>
-        )}
-
-        <div className="space-y-4 p-6">
-          <div className="flex flex-wrap gap-2">
-            {course.level && (
-              <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700">
-                {course.level}
-              </span>
-            )}
-
-            {course.language && (
-              <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700">
-                {course.language}
-              </span>
-            )}
-
-            <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">
-              Preview mode
-            </span>
-          </div>
-
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-zinc-950">
-              {course.title}
-            </h1>
-
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-600">
-              {course.shortDescription || "Preview this course before publish."}
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-4 text-sm text-zinc-500">
-            <span>{flatLessons.length} lessons</span>
-
-            {course.certificateEnabled && (
-              <span className="inline-flex items-center gap-1">
-                <CheckCircle2 className="h-4 w-4" />
-                Certificate included
-              </span>
-            )}
-          </div>
+          {submitAllowed ? (
+            rightAction
+          ) : submitLockedMessage ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800">
+              {submitLockedMessage}
+            </div>
+          ) : null}
         </div>
-      </section>
 
-      <section className="rounded-2xl border bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-indigo-600">
-              {currentFlatLesson
-                ? `Section ${currentFlatLesson.sectionIndex + 1}: ${currentFlatLesson.sectionTitle}`
-                : "Current lesson"}
-            </p>
+        <section className="min-w-0 overflow-hidden rounded-2xl border bg-white p-5 shadow-sm">
+          <div className="grid min-w-0 gap-5 md:grid-cols-[1fr_220px]">
+            <div className="min-w-0">
+              <div className="flex min-w-0 flex-wrap gap-2">
+                {course.level && (
+                  <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700">
+                    {course.level}
+                  </span>
+                )}
 
-            <h2 className="mt-1 text-2xl font-bold text-zinc-950">
-              {selectedLesson?.title || "No lesson selected"}
+                {course.language && (
+                  <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700">
+                    {course.language}
+                  </span>
+                )}
+
+                <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">
+                  Preview mode
+                </span>
+
+                {course.status && (
+                  <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700">
+                    {course.status}
+                  </span>
+                )}
+
+                {course.certificateEnabled && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    Certificate
+                  </span>
+                )}
+              </div>
+
+              <h1 className="mt-4 break-words text-2xl font-bold tracking-tight text-zinc-950">
+                {course.title}
+              </h1>
+
+              <p className="mt-3 break-words text-sm leading-6 text-zinc-600">
+                {course.shortDescription ||
+                  "Preview this course before publish."}
+              </p>
+            </div>
+
+            {course.thumbnailUrl && (
+              <img
+                src={course.thumbnailUrl}
+                alt={course.title}
+                className="aspect-video w-full rounded-xl border object-cover"
+              />
+            )}
+          </div>
+
+          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-xl border bg-zinc-50 p-4">
+              <p className="text-xs font-semibold uppercase text-zinc-500">
+                Sections
+              </p>
+              <p className="mt-1 text-2xl font-bold text-zinc-950">
+                {summary.sectionCount}
+              </p>
+            </div>
+
+            <div className="rounded-xl border bg-zinc-50 p-4">
+              <p className="text-xs font-semibold uppercase text-zinc-500">
+                Lessons
+              </p>
+              <p className="mt-1 text-2xl font-bold text-zinc-950">
+                {summary.lessonCount}
+              </p>
+            </div>
+
+            <div className="rounded-xl border bg-zinc-50 p-4">
+              <p className="text-xs font-semibold uppercase text-zinc-500">
+                Media
+              </p>
+              <p className="mt-1 text-2xl font-bold text-zinc-950">
+                {summary.mediaCount}
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {course.description && (
+          <section className="min-w-0 overflow-hidden rounded-2xl border bg-white p-5 shadow-sm">
+            <h2 className="text-xl font-semibold text-zinc-950">
+              Course Description
             </h2>
 
-            {currentFlatLesson && (
-              <p className="mt-2 text-sm text-zinc-500">
-                Lesson {currentFlatLesson.lessonIndex + 1} of section •{" "}
-                {currentLessonIndex + 1}/{flatLessons.length} total lessons
-              </p>
-            )}
+            <p className="mt-3 whitespace-pre-line break-words text-sm leading-7 text-zinc-600">
+              {course.description}
+            </p>
+          </section>
+        )}
+
+        <section className="min-w-0 space-y-4">
+          <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-center gap-2">
+              <ListVideo className="h-5 w-5 shrink-0 text-zinc-500" />
+              <h2 className="min-w-0 break-words text-2xl font-bold text-zinc-950">
+                Course Content
+              </h2>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={collapseAllSections}
+                disabled={!course.sections?.length}
+                className="rounded-lg border bg-white px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Collapse All
+              </button>
+
+              <button
+                type="button"
+                onClick={expandAllSections}
+                disabled={!course.sections?.length}
+                className="rounded-lg border bg-white px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Expand All
+              </button>
+            </div>
           </div>
 
-          {selectedFile && (
-            <span className="inline-flex items-center gap-2 rounded-full bg-zinc-100 px-3 py-1.5 text-xs font-semibold text-zinc-700">
-              {renderFileIcon(selectedFile.type)}
-              {getFileTypeLabel(selectedFile)}
-            </span>
-          )}
-        </div>
-
-        <div className="mt-6">{renderLearningFile(selectedFile)}</div>
-
-        <div className="mt-6 rounded-2xl bg-zinc-50 p-5">
-          <h3 className="font-semibold text-zinc-950">Lesson Description</h3>
-
-          <p className="mt-3 whitespace-pre-line text-sm leading-7 text-zinc-600">
-            {selectedLesson?.description || "No lesson description."}
-          </p>
-        </div>
-
-        <div className="mt-6 flex flex-col gap-3 border-t pt-5 sm:flex-row sm:items-center sm:justify-between">
-          <button
-            type="button"
-            disabled={!previousLesson}
-            onClick={() => {
-              if (previousLesson) selectLesson(previousLesson);
-            }}
-            className="inline-flex items-center justify-center rounded-xl border bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <ChevronLeft className="mr-2 h-4 w-4" />
-            Previous Lesson
-          </button>
-
-          <button
-            type="button"
-            disabled={!nextLesson}
-            onClick={() => {
-              if (nextLesson) selectLesson(nextLesson);
-            }}
-            className="inline-flex items-center justify-center rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Next Lesson
-            <ChevronRight className="ml-2 h-4 w-4" />
-          </button>
-        </div>
-      </section>
-
-      <LessonSidebar
-        sections={course.sections ?? []}
-        selectedLessonId={selectedLesson?.id}
-        onSelectLesson={selectLesson}
-      />
-
-      {selectedLesson?.files?.length ? (
-        <section className="rounded-2xl border bg-white p-6 shadow-sm">
-          <h3 className="text-lg font-semibold text-zinc-950">
-            Lesson Resources
-          </h3>
-
-          <p className="mt-1 text-sm text-zinc-500">
-            Click a resource to preview it above.
-          </p>
-
-          <div className="mt-4 grid gap-3">
-            {selectedLesson.files.map((file) => {
-              const active =
-                selectedFile?.id === file.id || selectedFile?.url === file.url;
-              const size = formatFileSize(file.sizeInBytes);
+          {course.sections?.length ? (
+            course.sections.map((section, sectionIndex) => {
+              const isCollapsed = Boolean(collapsedSections[section.id]);
 
               return (
-                <button
-                  key={file.id || file.url}
-                  type="button"
-                  onClick={() => setSelectedFile(file)}
-                  className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left text-sm transition ${
-                    active
-                      ? "border-zinc-900 bg-zinc-900 text-white"
-                      : "bg-zinc-50 hover:bg-zinc-100"
-                  }`}
+                <div
+                  key={section.id}
+                  className="min-w-0 overflow-hidden rounded-2xl border bg-white shadow-sm"
                 >
-                  <div className="flex min-w-0 items-center gap-3">
-                    {renderFileIcon(file.type)}
+                  <div className="border-b bg-zinc-50 px-6 py-8">
+                    <div className="flex min-w-0 flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => toggleSection(section.id)}
+                            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border bg-white text-zinc-600 transition hover:bg-zinc-100"
+                            title={
+                              isCollapsed
+                                ? "Expand section"
+                                : "Collapse section"
+                            }
+                          >
+                            {isCollapsed ? (
+                              <ChevronRight className="h-4 w-4" />
+                            ) : (
+                              <ChevronDown className="h-4 w-4" />
+                            )}
+                          </button>
 
-                    <div className="min-w-0">
-                      <p className="truncate font-medium">
-                        {file.filename || "Lesson file"}
-                      </p>
+                          <span className="rounded-full bg-zinc-900 px-3 py-1 text-xs font-semibold text-white">
+                            Section {sectionIndex + 1}
+                          </span>
 
-                      {size && (
-                        <p
-                          className={`mt-0.5 text-xs ${
-                            active ? "text-zinc-300" : "text-zinc-500"
-                          }`}
-                        >
-                          {size}
-                        </p>
-                      )}
+                          {section.isActive === false && (
+                            <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-700">
+                              Inactive
+                            </span>
+                          )}
+                        </div>
+
+                        <h3 className="mt-3 break-words text-xl font-bold text-zinc-950">
+                          {section.title}
+                        </h3>
+
+                        {section.description && (
+                          <p className="mt-2 break-words text-sm leading-6 text-zinc-600">
+                            {section.description}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="w-fit shrink-0 rounded-xl border bg-white px-4 py-2 text-sm text-zinc-600">
+                        {section.lessons?.length ?? 0} lessons
+                      </div>
                     </div>
                   </div>
 
-                  <span
-                    className={`ml-3 shrink-0 text-xs ${
-                      active ? "text-zinc-200" : "text-zinc-500"
-                    }`}
-                  >
-                    {getFileTypeLabel(file)}
-                  </span>
-                </button>
+                  {!isCollapsed && (
+                    <div className="min-w-0 space-y-5 p-5">
+                      {section.lessons?.length ? (
+                        section.lessons.map((lesson, lessonIndex) => (
+                          <article
+                            key={lesson.id}
+                            className="min-w-0 overflow-hidden rounded-2xl border border-zinc-200 bg-white p-5"
+                          >
+                            <div className="mb-4 flex min-w-0 flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-sm font-bold text-zinc-700">
+                                    {lessonIndex + 1}
+                                  </span>
+
+                                  <h4 className="min-w-0 break-words text-lg font-bold text-zinc-950">
+                                    {lesson.title}
+                                  </h4>
+
+                                  {lesson.isActive === false && (
+                                    <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-700">
+                                      Inactive
+                                    </span>
+                                  )}
+                                </div>
+
+                                {lesson.description && (
+                                  <p className="mt-3 whitespace-pre-line break-words text-sm leading-7 text-zinc-600">
+                                    {lesson.description}
+                                  </p>
+                                )}
+                              </div>
+
+                              <span className="w-fit shrink-0 rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700">
+                                {lesson.files?.length ?? 0} resources
+                              </span>
+                            </div>
+
+                            <LessonMediaList files={lesson.files} />
+                          </article>
+                        ))
+                      ) : (
+                        <div className="flex min-w-0 items-center gap-2 rounded-xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-5 text-sm text-zinc-500">
+                          <LockKeyhole className="h-4 w-4 shrink-0" />
+                          <span>No lessons in this section.</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               );
-            })}
-          </div>
+            })
+          ) : (
+            <div className="min-w-0 overflow-hidden rounded-2xl border bg-white px-6 py-12 text-center shadow-sm">
+              <BookOpen className="mx-auto h-10 w-10 text-zinc-300" />
+              <h3 className="mt-4 text-lg font-semibold text-zinc-900">
+                No learning content available
+              </h3>
+              <p className="mt-2 text-sm text-zinc-500">
+                This course does not have sections or lessons yet.
+              </p>
+            </div>
+          )}
         </section>
-      ) : null}
+      </div>
     </div>
   );
 }

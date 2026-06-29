@@ -45,6 +45,16 @@ const courseLevels: CourseLevel[] = [
   "ALL_LEVELS",
 ];
 
+const languageOptions = [
+  "English",
+  "Vietnamese",
+  "Chinese",
+  "Japanese",
+  "Korean",
+  "French",
+  "Spanish",
+];
+
 const editableCourseStatuses = [
   "DRAFT",
   "CHANGES_REQUESTED",
@@ -64,6 +74,10 @@ function isCourseEditable(status?: string | null) {
   return !normalizedStatus || editableCourseStatuses.includes(normalizedStatus);
 }
 
+function isDraftCourseStatus(status?: string | null) {
+  return normalizeCourseStatus(status) === "DRAFT";
+}
+
 function getLockedCourseMessage(status?: string | null) {
   const normalizedStatus = normalizeCourseStatus(status) || "UNKNOWN";
 
@@ -79,6 +93,37 @@ function getLockedCourseMessage(status?: string | null) {
   }
 
   return `This course cannot be edited in the current status: ${normalizedStatus}.`;
+}
+
+function formatLevelLabel(level: CourseLevel) {
+  const labels: Record<CourseLevel, string> = {
+    BEGINNER: "Beginner",
+    INTERMEDIATE: "Intermediate",
+    ADVANCE: "Advanced",
+    ALL_LEVELS: "All Levels",
+  };
+
+  return labels[level] || level;
+}
+
+function onlyDigits(value: string) {
+  return value.replace(/\D/g, "");
+}
+
+function formatVndInput(value: string) {
+  const digits = onlyDigits(value);
+
+  if (!digits) return "";
+
+  return Number(digits).toLocaleString("vi-VN");
+}
+
+function parseVndInput(value: string) {
+  const digits = onlyDigits(value);
+
+  if (!digits) return undefined;
+
+  return Number(digits);
 }
 
 type Category = {
@@ -103,7 +148,7 @@ type PendingThumbnail = {
 
 function buildCategoryOptions(
   categories: Category[],
-  depth = 0,
+  depth = 0
 ): CategoryOption[] {
   return categories.flatMap((category) => {
     const children = category.children || [];
@@ -246,7 +291,7 @@ async function getImageSize(file: File): Promise<{
 
 async function uploadImageToCloudinary(
   file: File,
-  signature: UploadSignatureResponse,
+  signature: UploadSignatureResponse
 ) {
   const formData = new FormData();
 
@@ -268,7 +313,7 @@ async function uploadImageToCloudinary(
     {
       method: "POST",
       body: formData,
-    },
+    }
   );
 
   if (!response.ok) {
@@ -299,7 +344,7 @@ export default function InstructorCourseEditPage() {
   const [showSubmitReviewModal, setShowSubmitReviewModal] = useState(false);
   const [showDeleteDraftModal, setShowDeleteDraftModal] = useState(false);
   const [errorModalMessage, setErrorModalMessage] = useState<string | null>(
-    null,
+    null
   );
 
   const [successMessage, setSuccessMessage] = useState("");
@@ -330,6 +375,12 @@ export default function InstructorCourseEditPage() {
     return isCourseEditable(course?.status);
   }, [course?.status]);
 
+  const isDraftCourse = useMemo(() => {
+    return isDraftCourseStatus(course?.status);
+  }, [course?.status]);
+
+  const thumbnailRequired = isDraftCourse;
+
   const lockedCourseMessage = useMemo(() => {
     if (!course || canEditCourse) return "";
 
@@ -342,20 +393,117 @@ export default function InstructorCourseEditPage() {
     return isGoodThumbnailSize(pendingThumbnail.width, pendingThumbnail.height);
   }, [pendingThumbnail]);
 
+  const priceNumber = useMemo(() => {
+    return parseVndInput(price);
+  }, [price]);
+
+  const courseValidationErrors = useMemo(() => {
+    const errors: string[] = [];
+
+    if (!title.trim() || title.trim().length < 3) {
+      errors.push("Title is required and must be at least 3 characters.");
+    }
+
+    if (!shortDescription.trim() || shortDescription.trim().length < 10) {
+      errors.push(
+        "Short description is required and must be at least 10 characters."
+      );
+    }
+
+    if (!description.trim()) {
+      errors.push("Description is required.");
+    }
+
+    if (!level) {
+      errors.push("Level is required.");
+    }
+
+    if (!language.trim()) {
+      errors.push("Language is required.");
+    }
+
+    if (!categoryId) {
+      errors.push("Category is required.");
+    } else if (!selectedCategory?.isLeaf) {
+      errors.push("Please choose a child category, not a parent group.");
+    }
+
+    if (priceNumber !== undefined && priceNumber < 0) {
+      errors.push("Price must be greater than or equal to 0.");
+    }
+
+    if (thumbnailRequired && !thumbnailUrl.trim()) {
+      errors.push("Thumbnail is required. Please upload and confirm thumbnail.");
+    }
+
+    if (!linesToArray(whatYouWillLearn).length) {
+      errors.push("What students will learn is required.");
+    }
+
+    if (!linesToArray(requirements).length) {
+      errors.push("Requirements is required.");
+    }
+
+    return errors;
+  }, [
+    title,
+    shortDescription,
+    description,
+    level,
+    language,
+    categoryId,
+    selectedCategory,
+    priceNumber,
+    thumbnailRequired,
+    thumbnailUrl,
+    whatYouWillLearn,
+    requirements,
+  ]);
+
+  const isCourseFormComplete = courseValidationErrors.length === 0;
+
   function showError(message: string) {
     setErrorModalMessage(message);
+  }
+
+  function showValidationErrors() {
+    showError(
+      `Please complete the required course information before continuing:\n\n${courseValidationErrors
+        .map((item) => `- ${item}`)
+        .join("\n")}`
+    );
   }
 
   function ensureCourseEditable() {
     if (canEditCourse) return true;
 
     showError(
-      lockedCourseMessage || "This course is locked and cannot be edited.",
+      lockedCourseMessage || "This course is locked and cannot be edited."
     );
     return false;
   }
 
+  function ensureCourseFormComplete() {
+    if (isCourseFormComplete) return true;
+
+    showValidationErrors();
+    return false;
+  }
+
+  function handlePriceChange(value: string) {
+    const digits = onlyDigits(value);
+
+    if (!digits) {
+      setPrice("");
+      return;
+    }
+
+    setPrice(formatVndInput(digits));
+  }
+
   function fillCourseForm(currentCourse: InstructorCourse) {
+    const currentLanguage = currentCourse.language ?? "";
+
     setTitle(currentCourse.title ?? "");
     setShortDescription(currentCourse.shortDescription ?? "");
     setDescription(currentCourse.description ?? "");
@@ -364,10 +512,10 @@ export default function InstructorCourseEditPage() {
     setLevel(currentCourse.level ?? "BEGINNER");
     setPrice(
       typeof currentCourse.price === "number"
-        ? String(currentCourse.price)
-        : "",
+        ? currentCourse.price.toLocaleString("vi-VN")
+        : ""
     );
-    setLanguage(currentCourse.language ?? "");
+    setLanguage(languageOptions.includes(currentLanguage) ? currentLanguage : "");
     setCertificateEnabled(Boolean(currentCourse.certificateEnabled));
     setThumbnailUrl(currentCourse.thumbnailUrl ?? "");
     setCategoryId(getCourseCategoryId(currentCourse));
@@ -476,7 +624,7 @@ export default function InstructorCourseEditPage() {
 
       const cloudinaryResult = await uploadImageToCloudinary(
         pendingThumbnail.file,
-        signature,
+        signature
       );
 
       setThumbnailUrl(cloudinaryResult.secure_url);
@@ -487,7 +635,7 @@ export default function InstructorCourseEditPage() {
 
       setPendingThumbnail(null);
       setSuccessMessage(
-        "Thumbnail uploaded. Click Save Course to store it in our system.",
+        "Thumbnail uploaded. Click Save Course to store it in our system."
       );
     } catch (err) {
       showError(getErrorMessage(err, "Failed to upload thumbnail."));
@@ -500,21 +648,7 @@ export default function InstructorCourseEditPage() {
     event.preventDefault();
 
     if (!ensureCourseEditable()) return;
-
-    if (!categoryId) {
-      showError("Please choose a category.");
-      return;
-    }
-
-    if (!selectedCategory?.isLeaf) {
-      showError("Please choose a child category, not a parent group.");
-      return;
-    }
-
-    if (price !== "" && Number(price) < 0) {
-      showError("Price must be greater than or equal to 0.");
-      return;
-    }
+    if (!ensureCourseFormComplete()) return;
 
     try {
       setSavingCourse(true);
@@ -523,20 +657,20 @@ export default function InstructorCourseEditPage() {
       const payload = {
         title: title.trim(),
         shortDescription: shortDescription.trim(),
-        description: description.trim() || undefined,
+        description: description.trim(),
         whatYouWillLearn: linesToArray(whatYouWillLearn),
         requirements: linesToArray(requirements),
         level,
-        price: price === "" ? undefined : Number(price),
-        language: language.trim() || undefined,
+        price: priceNumber,
+        language: language.trim(),
         certificateEnabled,
-        thumbnailUrl: thumbnailUrl || undefined,
+        thumbnailUrl: thumbnailUrl.trim() || undefined,
         categoryIds: [categoryId],
       };
 
       const response = await instructorCourseService.updateCourse(
         courseId,
-        payload,
+        payload
       );
 
       const updatedCourse = unwrapData<InstructorCourse>(response);
@@ -558,12 +692,14 @@ export default function InstructorCourseEditPage() {
 
   function handleSubmitForReview() {
     if (!ensureCourseEditable()) return;
+    if (!ensureCourseFormComplete()) return;
 
     setShowSubmitReviewModal(true);
   }
 
   async function confirmSubmitForReview() {
     if (!ensureCourseEditable()) return;
+    if (!ensureCourseFormComplete()) return;
 
     try {
       setSubmittingReview(true);
@@ -678,7 +814,17 @@ export default function InstructorCourseEditPage() {
             type="button"
             variant="outline"
             onClick={handleSubmitForReview}
-            disabled={!course || submittingReview || !canEditCourse}
+            disabled={
+              !course ||
+              submittingReview ||
+              !canEditCourse ||
+              !isCourseFormComplete
+            }
+            title={
+              isCourseFormComplete
+                ? "Submit course for review"
+                : "Please complete all required information first"
+            }
           >
             <Send className="mr-2 h-4 w-4" />
             {submittingReview ? "Submitting..." : "Submit for Review"}
@@ -710,6 +856,20 @@ export default function InstructorCourseEditPage() {
         </div>
       )}
 
+      {course && canEditCourse && !isCourseFormComplete && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <p className="font-semibold">
+            Please complete the required information before saving or submitting.
+          </p>
+
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            {courseValidationErrors.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {loading ? (
         <p className="text-sm text-zinc-500">Loading course...</p>
       ) : (
@@ -726,7 +886,7 @@ export default function InstructorCourseEditPage() {
               <form onSubmit={handleSaveCourse} className="space-y-4">
                 <div>
                   <label className="mb-1 block text-sm font-medium">
-                    Title
+                    Title <span className="text-red-500">*</span>
                   </label>
                   <Input
                     value={title}
@@ -740,7 +900,7 @@ export default function InstructorCourseEditPage() {
 
                 <div>
                   <label className="mb-1 block text-sm font-medium">
-                    Short Description
+                    Short Description <span className="text-red-500">*</span>
                   </label>
                   <Textarea
                     value={shortDescription}
@@ -756,13 +916,14 @@ export default function InstructorCourseEditPage() {
 
                 <div>
                   <label className="mb-1 block text-sm font-medium">
-                    Description
+                    Description <span className="text-red-500">*</span>
                   </label>
                   <Textarea
                     value={description}
                     onChange={(event) => setDescription(event.target.value)}
                     maxLength={10000}
                     rows={5}
+                    required
                     disabled={!canEditCourse}
                   />
                 </div>
@@ -770,7 +931,7 @@ export default function InstructorCourseEditPage() {
                 <div className="grid gap-3 md:grid-cols-2">
                   <div>
                     <label className="mb-1 block text-sm font-medium">
-                      Level
+                      Level <span className="text-red-500">*</span>
                     </label>
                     <select
                       value={level}
@@ -778,11 +939,12 @@ export default function InstructorCourseEditPage() {
                         setLevel(event.target.value as CourseLevel)
                       }
                       disabled={!canEditCourse}
+                      required
                       className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                     >
                       {courseLevels.map((item) => (
                         <option key={item} value={item}>
-                          {item}
+                          {formatLevelLabel(item)}
                         </option>
                       ))}
                     </select>
@@ -790,7 +952,7 @@ export default function InstructorCourseEditPage() {
 
                   <div>
                     <label className="mb-1 block text-sm font-medium">
-                      Category
+                      Category <span className="text-red-500">*</span>
                     </label>
                     <select
                       value={categoryId}
@@ -827,30 +989,36 @@ export default function InstructorCourseEditPage() {
                       Price (VND)
                     </label>
                     <Input
-                      type="number"
-                      min={0}
-                      step="10000"
+                      type="text"
+                      inputMode="numeric"
                       value={price}
-                      onChange={(event) => setPrice(event.target.value)}
+                      onChange={(event) => handlePriceChange(event.target.value)}
                       disabled={!canEditCourse}
-                      placeholder="100000"
+                      placeholder="100.000"
                     />
                     <p className="mt-1 text-xs text-zinc-500">
-                      Leave empty for free.
+                      Leave empty for free. Example: 100.000.
                     </p>
                   </div>
 
                   <div>
                     <label className="mb-1 block text-sm font-medium">
-                      Language
+                      Language <span className="text-red-500">*</span>
                     </label>
-                    <Input
+                    <select
                       value={language}
                       onChange={(event) => setLanguage(event.target.value)}
-                      placeholder="English, Vietnamese..."
-                      maxLength={50}
                       disabled={!canEditCourse}
-                    />
+                      required
+                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="">Choose language</option>
+                      {languageOptions.map((item) => (
+                        <option key={item} value={item}>
+                          {item}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
@@ -868,7 +1036,8 @@ export default function InstructorCourseEditPage() {
 
                 <div>
                   <label className="mb-1 block text-sm font-medium">
-                    What students will learn
+                    What students will learn{" "}
+                    <span className="text-red-500">*</span>
                   </label>
                   <Textarea
                     value={whatYouWillLearn}
@@ -877,27 +1046,36 @@ export default function InstructorCourseEditPage() {
                     }
                     placeholder="One item per line"
                     rows={5}
+                    required
                     disabled={!canEditCourse}
                   />
                 </div>
 
                 <div>
                   <label className="mb-1 block text-sm font-medium">
-                    Requirements
+                    Requirements <span className="text-red-500">*</span>
                   </label>
                   <Textarea
                     value={requirements}
                     onChange={(event) => setRequirements(event.target.value)}
                     placeholder="One item per line"
                     rows={4}
+                    required
                     disabled={!canEditCourse}
                   />
                 </div>
 
                 <Button
                   type="submit"
-                  disabled={savingCourse || !canEditCourse}
+                  disabled={
+                    savingCourse || !canEditCourse || !isCourseFormComplete
+                  }
                   className="w-full"
+                  title={
+                    isCourseFormComplete
+                      ? "Save course"
+                      : "Please complete all required information first"
+                  }
                 >
                   <Save className="mr-2 h-4 w-4" />
                   {savingCourse ? "Saving..." : "Save Course"}
@@ -907,11 +1085,24 @@ export default function InstructorCourseEditPage() {
           </Card>
 
           <section className="space-y-6">
-            <Card>
+            <Card
+              className={
+                thumbnailRequired && !thumbnailUrl.trim()
+                  ? "border-red-200 bg-red-50/30"
+                  : ""
+              }
+            >
               <CardHeader>
-                <CardTitle>Course Thumbnail</CardTitle>
+                <CardTitle>
+                  Course Thumbnail{" "}
+                  {thumbnailRequired && (
+                    <span className="text-red-500">*</span>
+                  )}
+                </CardTitle>
                 <CardDescription>
-                  Recommended size: 1280x720px, 16:9 ratio, under 5MB.
+                  {thumbnailRequired
+                    ? "Required before saving or submitting while the course is still a draft. Recommended size: 1280x720px, 16:9 ratio, under 5MB."
+                    : "Recommended size: 1280x720px, 16:9 ratio, under 5MB."}
                 </CardDescription>
               </CardHeader>
 
@@ -953,6 +1144,14 @@ export default function InstructorCourseEditPage() {
                       }}
                     />
                   </label>
+
+                  {thumbnailRequired && !thumbnailUrl.trim() && (
+                    <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                      Thumbnail is required while the course is still a draft.
+                      Please select and confirm upload before saving or
+                      submitting.
+                    </div>
+                  )}
 
                   <div className="rounded-lg border bg-zinc-50 p-3 text-xs text-zinc-600">
                     <p className="font-medium text-zinc-800">Thumbnail guide</p>
@@ -998,7 +1197,7 @@ export default function InstructorCourseEditPage() {
 
                   <div className="p-4">
                     <div className="mb-2 flex flex-wrap gap-2">
-                      {level && <Badge>{level}</Badge>}
+                      {level && <Badge>{formatLevelLabel(level)}</Badge>}
                       {language && (
                         <Badge variant="secondary">{language}</Badge>
                       )}
@@ -1018,8 +1217,8 @@ export default function InstructorCourseEditPage() {
                     </p>
 
                     <p className="mt-4 text-sm font-semibold text-zinc-900">
-                      {price
-                        ? `${Number(price).toLocaleString("vi-VN")} VND`
+                      {priceNumber !== undefined
+                        ? `${priceNumber.toLocaleString("vi-VN")} VND`
                         : "Free"}
                     </p>
                   </div>
@@ -1091,7 +1290,7 @@ export default function InstructorCourseEditPage() {
                   <p>
                     {getAspectRatioText(
                       pendingThumbnail.width,
-                      pendingThumbnail.height,
+                      pendingThumbnail.height
                     )}
                   </p>
                 </div>
@@ -1173,7 +1372,9 @@ export default function InstructorCourseEditPage() {
               <Button
                 type="button"
                 onClick={confirmSubmitForReview}
-                disabled={submittingReview || !canEditCourse}
+                disabled={
+                  submittingReview || !canEditCourse || !isCourseFormComplete
+                }
               >
                 <Send className="mr-2 h-4 w-4" />
                 {submittingReview ? "Submitting..." : "Submit for Review"}

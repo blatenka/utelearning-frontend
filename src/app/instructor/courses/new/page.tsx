@@ -40,6 +40,27 @@ const levels: CourseLevel[] = [
   "ALL_LEVELS",
 ];
 
+const languageOptions = [
+  "English",
+  "Vietnamese",
+  "Chinese",
+  "Japanese",
+  "Korean",
+  "French",
+  "Spanish",
+];
+
+function formatLevelLabel(level: CourseLevel) {
+  const labels: Record<CourseLevel, string> = {
+    BEGINNER: "Beginner",
+    INTERMEDIATE: "Intermediate",
+    ADVANCE: "Advanced",
+    ALL_LEVELS: "All Levels",
+  };
+
+  return labels[level] || level;
+}
+
 function buildCategoryOptions(
   categories: Category[],
   depth = 0
@@ -90,6 +111,26 @@ function formatCategoryLabel(option: CategoryOption) {
   return `${prefix}${option.name}${suffix}`;
 }
 
+function onlyDigits(value: string) {
+  return value.replace(/\D/g, "");
+}
+
+function formatVndInput(value: string) {
+  const digits = onlyDigits(value);
+
+  if (!digits) return "";
+
+  return Number(digits).toLocaleString("vi-VN");
+}
+
+function parseVndInput(value: string) {
+  const digits = onlyDigits(value);
+
+  if (!digits) return undefined;
+
+  return Number(digits);
+}
+
 export default function CreateInstructorCoursePage() {
   const router = useRouter();
 
@@ -118,8 +159,23 @@ export default function CreateInstructorCoursePage() {
     return categoryOptions.find((category) => category.id === categoryId);
   }, [categoryOptions, categoryId]);
 
+  const priceNumber = useMemo(() => {
+    return parseVndInput(price);
+  }, [price]);
+
   function showError(message: string) {
     setErrorModalMessage(message);
+  }
+
+  function handlePriceChange(value: string) {
+    const digits = onlyDigits(value);
+
+    if (!digits) {
+      setPrice("");
+      return;
+    }
+
+    setPrice(formatVndInput(digits));
   }
 
   async function fetchCategories() {
@@ -151,7 +207,12 @@ export default function CreateInstructorCoursePage() {
       return;
     }
 
-    if (price !== "" && Number(price) < 0) {
+    if (!language) {
+      showError("Please choose a language.");
+      return;
+    }
+
+    if (priceNumber !== undefined && priceNumber < 0) {
       showError("Price must be greater than or equal to 0.");
       return;
     }
@@ -164,8 +225,8 @@ export default function CreateInstructorCoursePage() {
         shortDescription: shortDescription.trim(),
         description: description.trim() || undefined,
         level,
-        price: price === "" ? undefined : Number(price),
-        language: language.trim() || undefined,
+        price: priceNumber,
+        language,
         certificateEnabled,
         categoryIds: [categoryId],
       });
@@ -248,7 +309,7 @@ export default function CreateInstructorCoursePage() {
                   >
                     {levels.map((item) => (
                       <option key={item} value={item}>
-                        {item}
+                        {formatLevelLabel(item)}
                       </option>
                     ))}
                   </select>
@@ -288,25 +349,33 @@ export default function CreateInstructorCoursePage() {
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Price (VND)</label>
                   <Input
-                    type="number"
-                    min={0}
-                    step={10000}
+                    type="text"
+                    inputMode="numeric"
                     value={price}
-                    onChange={(event) => setPrice(event.target.value)}
-                    placeholder="100000"
+                    onChange={(event) => handlePriceChange(event.target.value)}
+                    placeholder="100.000"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Enter the price in Vietnamese dong. Leave empty for free.
+                    Enter the price in Vietnamese dong. Example: 100.000. Leave
+                    empty for free.
                   </p>
                 </div>
 
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Language</label>
-                  <Input
+                  <select
                     value={language}
                     onChange={(event) => setLanguage(event.target.value)}
-                    placeholder="English"
-                  />
+                    className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                    required
+                  >
+                    <option value="">Choose language</option>
+                    {languageOptions.map((item) => (
+                      <option key={item} value={item}>
+                        {item}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 

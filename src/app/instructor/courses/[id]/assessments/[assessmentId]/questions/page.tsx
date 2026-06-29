@@ -8,8 +8,10 @@ import {
   Pencil,
   PlusCircle,
   Trash2,
+  X,
   XCircle,
 } from "lucide-react";
+
 import { assessmentService } from "@/services/assessment.service";
 import type {
   AssessmentQuestion,
@@ -30,9 +32,10 @@ type QuestionFormState = {
   type: AssessmentQuestionType;
   explanation: string;
   points: number;
-  correctOptionAnswer: string;
+  multipleChoiceOptions: string[];
+  correctOptionIndex: number;
+  trueFalseCorrectAnswer: "true" | "false";
   correctTextAnswer: string;
-  wrongAnswersText: string;
 };
 
 const emptyForm: QuestionFormState = {
@@ -40,9 +43,10 @@ const emptyForm: QuestionFormState = {
   type: "MULTIPLE_CHOICE",
   explanation: "",
   points: 1,
-  correctOptionAnswer: "",
+  multipleChoiceOptions: ["", "", "", ""],
+  correctOptionIndex: 0,
+  trueFalseCorrectAnswer: "true",
   correctTextAnswer: "",
-  wrongAnswersText: "",
 };
 
 function getErrorMessage(err: unknown, fallback: string) {
@@ -78,22 +82,49 @@ function questionTypeLabel(type: AssessmentQuestionType) {
   return type;
 }
 
-function getWrongAnswersText(question: AssessmentQuestion) {
-  if (!Array.isArray(question.answer?.wrongAnswers)) return "";
-  return question.answer.wrongAnswers.join("\n");
+function normalizeMultipleChoiceOptions(question: AssessmentQuestion) {
+  const correctAnswer = question.answer?.correctOptionAnswer || "";
+  const wrongAnswers = Array.isArray(question.answer?.wrongAnswers)
+    ? question.answer.wrongAnswers
+    : [];
+
+  const options = [correctAnswer, ...wrongAnswers]
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 4);
+
+  while (options.length < 4) {
+    options.push("");
+  }
+
+  return options;
+}
+
+function getCorrectOptionIndex(
+  options: string[],
+  correctAnswer?: string | null
+) {
+  const index = options.findIndex(
+    (option) => option.trim() === correctAnswer?.trim()
+  );
+
+  return index >= 0 ? index : 0;
 }
 
 export default function AssessmentQuestionsPage({ params }: PageProps) {
   const { id: courseId, assessmentId } = use(params);
 
   const [assessment, setAssessment] = useState<DetailedAssessment | null>(null);
+
+  const [form, setForm] = useState<QuestionFormState>(emptyForm);
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(
     null
   );
+  const [isQuestionModalOpen, setIsQuestionModalOpen] = useState(false);
+
   const [questionToDelete, setQuestionToDelete] =
     useState<AssessmentQuestion | null>(null);
 
-  const [form, setForm] = useState<QuestionFormState>(emptyForm);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -159,56 +190,79 @@ export default function AssessmentQuestionsPage({ params }: PageProps) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
+  function updateMultipleChoiceOption(index: number, value: string) {
+    setForm((prev) => {
+      const nextOptions = [...prev.multipleChoiceOptions];
+      nextOptions[index] = value;
+
+      return {
+        ...prev,
+        multipleChoiceOptions: nextOptions,
+      };
+    });
+  }
+
   function handleTypeChange(nextType: AssessmentQuestionType) {
     setForm((prev) => ({
       ...prev,
       type: nextType,
-      correctOptionAnswer:
-        nextType === "FILL_IN_THE_BLANK"
-          ? ""
-          : nextType === "TRUE_FALSE"
-            ? prev.correctOptionAnswer === "false"
-              ? "false"
-              : "true"
-            : prev.correctOptionAnswer,
+      multipleChoiceOptions:
+        nextType === "MULTIPLE_CHOICE"
+          ? prev.multipleChoiceOptions.length === 4
+            ? prev.multipleChoiceOptions
+            : ["", "", "", ""]
+          : prev.multipleChoiceOptions,
+      correctOptionIndex: 0,
+      trueFalseCorrectAnswer:
+        nextType === "TRUE_FALSE" ? prev.trueFalseCorrectAnswer : "true",
       correctTextAnswer:
         nextType === "FILL_IN_THE_BLANK" ? prev.correctTextAnswer : "",
-      wrongAnswersText:
-        nextType === "MULTIPLE_CHOICE" ? prev.wrongAnswersText : "",
     }));
   }
 
-  function startEdit(question: AssessmentQuestion) {
+  function openCreateModal() {
+    setEditingQuestionId(null);
+    setForm(emptyForm);
+    setErrorModalMessage(null);
+    setIsQuestionModalOpen(true);
+  }
+
+  function openEditModal(question: AssessmentQuestion) {
+    const options =
+      question.type === "MULTIPLE_CHOICE"
+        ? normalizeMultipleChoiceOptions(question)
+        : ["", "", "", ""];
+
     setEditingQuestionId(question.id);
 
     setForm({
       questionText: question.questionText,
       type: question.type,
       explanation: question.explanation || "",
-      points: question.points,
-      correctOptionAnswer: question.answer?.correctOptionAnswer || "",
+      points: question.points || 1,
+      multipleChoiceOptions: options,
+      correctOptionIndex: getCorrectOptionIndex(
+        options,
+        question.answer?.correctOptionAnswer
+      ),
+      trueFalseCorrectAnswer:
+        question.answer?.correctOptionAnswer === "false" ? "false" : "true",
       correctTextAnswer: question.answer?.correctTextAnswer || "",
-      wrongAnswersText: getWrongAnswersText(question),
     });
 
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    });
+    setErrorModalMessage(null);
+    setIsQuestionModalOpen(true);
   }
 
-  function resetForm() {
+  function closeQuestionModal() {
+    if (saving) return;
+
+    setIsQuestionModalOpen(false);
     setEditingQuestionId(null);
     setForm(emptyForm);
-    setErrorModalMessage(null);
   }
 
   function buildAnswerPayload(): UpsertAssessmentAnswerPayload {
-    const wrongAnswers = form.wrongAnswersText
-      .split("\n")
-      .map((item) => item.trim())
-      .filter(Boolean);
-
     if (form.type === "FILL_IN_THE_BLANK") {
       return {
         correctTextAnswer: form.correctTextAnswer.trim(),
@@ -219,14 +273,21 @@ export default function AssessmentQuestionsPage({ params }: PageProps) {
 
     if (form.type === "TRUE_FALSE") {
       return {
-        correctOptionAnswer: form.correctOptionAnswer || "true",
+        correctOptionAnswer: form.trueFalseCorrectAnswer,
         correctTextAnswer: undefined,
         wrongAnswers: undefined,
       };
     }
 
+    const options = form.multipleChoiceOptions.map((item) => item.trim());
+    const correctOptionAnswer = options[form.correctOptionIndex];
+
+    const wrongAnswers = options.filter(
+      (_, index) => index !== form.correctOptionIndex
+    );
+
     return {
-      correctOptionAnswer: form.correctOptionAnswer.trim(),
+      correctOptionAnswer,
       correctTextAnswer: undefined,
       wrongAnswers,
     };
@@ -234,7 +295,7 @@ export default function AssessmentQuestionsPage({ params }: PageProps) {
 
   function validateForm() {
     if (!form.questionText.trim()) {
-      return "Question text is required.";
+      return "Please enter the question text.";
     }
 
     if (Number(form.points) < 1 || Number(form.points) > 100) {
@@ -242,21 +303,27 @@ export default function AssessmentQuestionsPage({ params }: PageProps) {
     }
 
     if (form.type === "FILL_IN_THE_BLANK" && !form.correctTextAnswer.trim()) {
-      return "Correct text answer is required.";
+      return "Please enter the correct answer for the fill-in-the-blank question.";
     }
 
-    if (form.type !== "FILL_IN_THE_BLANK" && !form.correctOptionAnswer.trim()) {
-      return "Correct option answer is required.";
-    }
+    if (form.type === "MULTIPLE_CHOICE") {
+      const options = form.multipleChoiceOptions.map((item) => item.trim());
 
-    if (
-      form.type === "MULTIPLE_CHOICE" &&
-      form.wrongAnswersText
-        .split("\n")
-        .map((item) => item.trim())
-        .filter(Boolean).length === 0
-    ) {
-      return "At least one wrong answer is required for multiple choice questions.";
+      if (options.some((item) => !item)) {
+        return "Please enter all 4 options for the multiple-choice question.";
+      }
+
+      const duplicatedOptions = options.filter(
+        (item, index) => options.indexOf(item) !== index
+      );
+
+      if (duplicatedOptions.length > 0) {
+        return "Multiple-choice options must not be duplicated.";
+      }
+
+      if (!options[form.correctOptionIndex]) {
+        return "Please select the correct option.";
+      }
     }
 
     return null;
@@ -266,10 +333,13 @@ export default function AssessmentQuestionsPage({ params }: PageProps) {
     event.preventDefault();
 
     const validationError = validateForm();
+
     if (validationError) {
       showError(validationError);
       return;
     }
+
+    const wasEditing = Boolean(editingQuestionId);
 
     try {
       setSaving(true);
@@ -299,7 +369,7 @@ export default function AssessmentQuestionsPage({ params }: PageProps) {
       const questionId = question?.id || editingQuestionId;
 
       if (!questionId) {
-        throw new Error("Question ID was not returned from the server.");
+        throw new Error("The server did not return the question ID.");
       }
 
       await assessmentService.upsertAnswer(
@@ -309,11 +379,14 @@ export default function AssessmentQuestionsPage({ params }: PageProps) {
         buildAnswerPayload()
       );
 
-      resetForm();
+      setIsQuestionModalOpen(false);
+      setEditingQuestionId(null);
+      setForm(emptyForm);
+
       await loadAssessment();
 
       showSuccess(
-        editingQuestionId
+        wasEditing
           ? "Question updated successfully."
           : "Question added successfully."
       );
@@ -338,11 +411,14 @@ export default function AssessmentQuestionsPage({ params }: PageProps) {
         questionToDelete.id
       );
 
+      setQuestionToDelete(null);
+
       if (editingQuestionId === questionToDelete.id) {
-        resetForm();
+        setEditingQuestionId(null);
+        setForm(emptyForm);
+        setIsQuestionModalOpen(false);
       }
 
-      setQuestionToDelete(null);
       await loadAssessment();
 
       showSuccess("Question deleted successfully.");
@@ -366,13 +442,24 @@ export default function AssessmentQuestionsPage({ params }: PageProps) {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-sm text-zinc-500">Instructor / Assessment</p>
-          <h1 className="text-2xl font-bold">Question editor</h1>
-          <p className="text-sm text-zinc-500">
-            {assessment?.title || "Assessment questions"}
+
+          <h1 className="text-2xl font-bold">Question Management</h1>
+
+          <p className="mt-1 text-sm text-zinc-500">
+            {assessment?.title || "Assessment question list"}
           </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={openCreateModal}
+            className="inline-flex items-center rounded-lg bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
+          >
+            <PlusCircle className="mr-2 h-4 w-4" />
+            Add question
+          </button>
+
           <Link
             href={`/instructor/courses/${courseId}/assessments/${assessmentId}/edit`}
             className="rounded-lg border px-3 py-2 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
@@ -384,192 +471,39 @@ export default function AssessmentQuestionsPage({ params }: PageProps) {
             href={`/instructor/courses/${courseId}/assessments`}
             className="rounded-lg border px-3 py-2 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
           >
-            Back to assessments
+            Back
           </Link>
         </div>
       </div>
 
       <section className="rounded-2xl border bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
-        <div className="mb-5 flex flex-col gap-3 border-b pb-4 dark:border-zinc-800 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <div className="flex items-center gap-2">
-              {isEditing ? (
-                <Pencil className="h-5 w-5 text-zinc-500" />
-              ) : (
-                <PlusCircle className="h-5 w-5 text-zinc-500" />
-              )}
+        <div className="grid gap-4 sm:grid-cols-3">
+          <div className="rounded-xl bg-zinc-50 p-4 dark:bg-zinc-900">
+            <p className="text-sm text-zinc-500">Questions</p>
+            <p className="mt-1 text-2xl font-bold">{sortedQuestions.length}</p>
+          </div>
 
-              <h2 className="text-lg font-semibold">
-                {isEditing ? "Edit question" : "Add new question"}
-              </h2>
-            </div>
+          <div className="rounded-xl bg-zinc-50 p-4 dark:bg-zinc-900">
+            <p className="text-sm text-zinc-500">Total points</p>
+            <p className="mt-1 text-2xl font-bold">{totalPoints}</p>
+          </div>
 
-            <p className="mt-1 text-sm text-zinc-500">
-              Nhập câu hỏi ở đây. Sau khi thêm, câu hỏi sẽ nằm trong danh sách
-              bên dưới.
+          <div className="rounded-xl bg-zinc-50 p-4 dark:bg-zinc-900">
+            <p className="text-sm text-zinc-500">Assessment type</p>
+            <p className="mt-1 text-2xl font-bold">
+              {assessment?.type === "PROJECT" ? "Project" : "Quiz"}
             </p>
           </div>
-
-          {isEditing && (
-            <button
-              type="button"
-              onClick={resetForm}
-              className="w-fit rounded-lg border px-3 py-2 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
-            >
-              Cancel edit
-            </button>
-          )}
         </div>
-
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Question text</label>
-            <textarea
-              required
-              rows={4}
-              value={form.questionText}
-              onChange={(e) => update("questionText", e.target.value)}
-              className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
-              placeholder="Example: What is the output of typeof null?"
-            />
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="space-y-2 md:col-span-2">
-              <label className="text-sm font-medium">Question type</label>
-              <select
-                value={form.type}
-                onChange={(e) =>
-                  handleTypeChange(e.target.value as AssessmentQuestionType)
-                }
-                className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
-              >
-                <option value="MULTIPLE_CHOICE">Multiple choice</option>
-                <option value="TRUE_FALSE">True / False</option>
-                <option value="FILL_IN_THE_BLANK">Fill in the blank</option>
-              </select>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Points</label>
-              <input
-                type="number"
-                min={1}
-                max={100}
-                value={form.points}
-                onChange={(e) => update("points", Number(e.target.value))}
-                className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
-              />
-            </div>
-          </div>
-
-          {form.type === "FILL_IN_THE_BLANK" ? (
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Correct text answer</label>
-              <input
-                required
-                value={form.correctTextAnswer}
-                onChange={(e) => update("correctTextAnswer", e.target.value)}
-                className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
-                placeholder="Example: JavaScript"
-              />
-            </div>
-          ) : form.type === "TRUE_FALSE" ? (
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Correct answer</label>
-              <select
-                value={form.correctOptionAnswer || "true"}
-                onChange={(e) => update("correctOptionAnswer", e.target.value)}
-                className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
-              >
-                <option value="true">True</option>
-                <option value="false">False</option>
-              </select>
-            </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  Correct option answer
-                </label>
-                <input
-                  required
-                  value={form.correctOptionAnswer}
-                  onChange={(e) =>
-                    update("correctOptionAnswer", e.target.value)
-                  }
-                  className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
-                  placeholder="Example: object"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  Wrong answers, one per line
-                </label>
-                <textarea
-                  rows={4}
-                  value={form.wrongAnswersText}
-                  onChange={(e) =>
-                    update("wrongAnswersText", e.target.value)
-                  }
-                  className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
-                  placeholder={"string\nnumber\nundefined"}
-                />
-              </div>
-            </div>
-          )}
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Explanation</label>
-            <textarea
-              rows={3}
-              value={form.explanation}
-              onChange={(e) => update("explanation", e.target.value)}
-              className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
-              placeholder="Optional explanation shown in review mode."
-            />
-          </div>
-
-          <div className="flex justify-end gap-2 border-t pt-4 dark:border-zinc-800">
-            {isEditing && (
-              <button
-                type="button"
-                onClick={resetForm}
-                className="rounded-lg border px-4 py-2 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
-              >
-                Cancel
-              </button>
-            )}
-
-            <button
-              disabled={saving}
-              className="inline-flex items-center rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-zinc-900"
-            >
-              {saving ? (
-                "Saving..."
-              ) : isEditing ? (
-                <>
-                  <Pencil className="mr-2 h-4 w-4" />
-                  Update question
-                </>
-              ) : (
-                <>
-                  <PlusCircle className="mr-2 h-4 w-4" />
-                  Add question
-                </>
-              )}
-            </button>
-          </div>
-        </form>
       </section>
 
       <section className="space-y-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold">Question list</h2>
+
             <p className="text-sm text-zinc-500">
-              {sortedQuestions.length} questions · {totalPoints} total points
+              {sortedQuestions.length} questions · {totalPoints} points
             </p>
           </div>
         </div>
@@ -577,31 +511,38 @@ export default function AssessmentQuestionsPage({ params }: PageProps) {
         {sortedQuestions.length === 0 ? (
           <div className="rounded-2xl border border-dashed bg-white p-8 text-center text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950">
             <FileQuestion className="mx-auto h-9 w-9 text-zinc-300" />
+
             <p className="mt-3 font-medium text-zinc-700 dark:text-zinc-200">
               No questions have been added yet.
             </p>
+
             <p className="mt-1 text-zinc-500">
-              Hãy nhập câu hỏi ở form phía trên rồi bấm Add question.
+              Click “Add question” to create the first question for this
+              assessment.
             </p>
+
+            <button
+              type="button"
+              onClick={openCreateModal}
+              className="mt-4 inline-flex items-center rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
+            >
+              <PlusCircle className="mr-2 h-4 w-4" />
+              Add question
+            </button>
           </div>
         ) : (
           <div className="grid gap-4">
             {sortedQuestions.map((question, index) => {
-              const activeEditing = editingQuestionId === question.id;
-
               return (
                 <article
                   key={question.id}
-                  className={`rounded-2xl border bg-white p-5 shadow-sm transition dark:border-zinc-800 dark:bg-zinc-950 ${activeEditing
-                    ? "border-zinc-900 ring-2 ring-zinc-900/10 dark:border-white dark:ring-white/10"
-                    : ""
-                    }`}
+                  className="rounded-2xl border bg-white p-5 shadow-sm transition dark:border-zinc-800 dark:bg-zinc-950"
                 >
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0 flex-1 space-y-3">
                       <div className="flex flex-wrap items-center gap-2 text-xs">
                         <span className="rounded-full bg-zinc-900 px-2.5 py-1 font-medium text-white dark:bg-white dark:text-zinc-900">
-                          Q{index + 1}
+                          Question {index + 1}
                         </span>
 
                         <span className="rounded-full bg-zinc-100 px-2.5 py-1 font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
@@ -613,14 +554,8 @@ export default function AssessmentQuestionsPage({ params }: PageProps) {
                         </span>
 
                         <span className="rounded-full bg-zinc-100 px-2.5 py-1 font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
-                          {question.points} pts
+                          {question.points} points
                         </span>
-
-                        {activeEditing && (
-                          <span className="rounded-full bg-amber-50 px-2.5 py-1 font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                            Editing
-                          </span>
-                        )}
                       </div>
 
                       <h3 className="text-base font-semibold leading-7 text-zinc-950 dark:text-zinc-50">
@@ -629,12 +564,25 @@ export default function AssessmentQuestionsPage({ params }: PageProps) {
 
                       <div className="grid gap-3 text-sm md:grid-cols-2">
                         {question.type === "FILL_IN_THE_BLANK" ? (
-                          <div className="rounded-xl bg-zinc-50 p-3 dark:bg-zinc-900">
-                            <p className="text-xs font-medium uppercase tracking-wide text-zinc-400">
-                              Correct text
+                          <div className="rounded-xl bg-emerald-50 p-3 dark:bg-emerald-950/30">
+                            <p className="text-xs font-medium uppercase tracking-wide text-emerald-600 dark:text-emerald-300">
+                              Correct answer
                             </p>
+
                             <p className="mt-1 text-zinc-700 dark:text-zinc-200">
                               {question.answer?.correctTextAnswer || "Not set"}
+                            </p>
+                          </div>
+                        ) : question.type === "TRUE_FALSE" ? (
+                          <div className="rounded-xl bg-emerald-50 p-3 dark:bg-emerald-950/30">
+                            <p className="text-xs font-medium uppercase tracking-wide text-emerald-600 dark:text-emerald-300">
+                              Correct answer
+                            </p>
+
+                            <p className="mt-1 text-zinc-700 dark:text-zinc-200">
+                              {question.answer?.correctOptionAnswer === "false"
+                                ? "False"
+                                : "True"}
                             </p>
                           </div>
                         ) : (
@@ -643,6 +591,7 @@ export default function AssessmentQuestionsPage({ params }: PageProps) {
                               <p className="text-xs font-medium uppercase tracking-wide text-emerald-600 dark:text-emerald-300">
                                 Correct option
                               </p>
+
                               <p className="mt-1 text-zinc-700 dark:text-zinc-200">
                                 {question.answer?.correctOptionAnswer ||
                                   "Not set"}
@@ -653,11 +602,12 @@ export default function AssessmentQuestionsPage({ params }: PageProps) {
                               <p className="text-xs font-medium uppercase tracking-wide text-red-600 dark:text-red-300">
                                 Wrong options
                               </p>
+
                               <p className="mt-1 text-zinc-700 dark:text-zinc-200">
                                 {Array.isArray(question.answer?.wrongAnswers) &&
                                   question.answer.wrongAnswers.length > 0
                                   ? question.answer.wrongAnswers.join(", ")
-                                  : "None"}
+                                  : "Not set"}
                               </p>
                             </div>
                           </>
@@ -669,6 +619,7 @@ export default function AssessmentQuestionsPage({ params }: PageProps) {
                           <p className="text-xs font-medium uppercase tracking-wide text-blue-600 dark:text-blue-300">
                             Explanation
                           </p>
+
                           <p className="mt-1 whitespace-pre-line text-zinc-700 dark:text-zinc-200">
                             {question.explanation}
                           </p>
@@ -679,7 +630,7 @@ export default function AssessmentQuestionsPage({ params }: PageProps) {
                     <div className="flex shrink-0 gap-2">
                       <button
                         type="button"
-                        onClick={() => startEdit(question)}
+                        onClick={() => openEditModal(question)}
                         className="inline-flex items-center rounded-lg border px-3 py-2 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
                       >
                         <Pencil className="mr-2 h-4 w-4" />
@@ -703,14 +654,260 @@ export default function AssessmentQuestionsPage({ params }: PageProps) {
         )}
       </section>
 
+      {isQuestionModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6">
+          <div className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-2xl border bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
+            <div className="flex items-start justify-between gap-4 border-b p-5 dark:border-zinc-800">
+              <div>
+                <h2 className="text-lg font-semibold">
+                  {isEditing ? "Edit question" : "Add new question"}
+                </h2>
+
+                <p className="mt-1 text-sm text-zinc-500">
+                  Enter the question content, choose the question type, and set
+                  the correct answer.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={closeQuestionModal}
+                disabled={saving}
+                className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-100 disabled:opacity-50 dark:hover:bg-zinc-900"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={handleSubmit}
+              className="flex-1 space-y-5 overflow-y-auto p-5"
+            >
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Question text</label>
+
+                <textarea
+                  required
+                  rows={4}
+                  value={form.questionText}
+                  onChange={(e) => update("questionText", e.target.value)}
+                  className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
+                  placeholder="Example: What is the result of typeof null in JavaScript?"
+                />
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2 md:col-span-2">
+                  <label className="text-sm font-medium">Question type</label>
+
+                  <select
+                    value={form.type}
+                    onChange={(e) =>
+                      handleTypeChange(e.target.value as AssessmentQuestionType)
+                    }
+                    className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
+                  >
+                    <option value="MULTIPLE_CHOICE">Multiple choice</option>
+                    <option value="TRUE_FALSE">True / False</option>
+                    <option value="FILL_IN_THE_BLANK">
+                      Fill in the blank
+                    </option>
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Points</label>
+
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={form.points}
+                    onChange={(e) => update("points", Number(e.target.value))}
+                    className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
+                  />
+                </div>
+              </div>
+
+              {form.type === "MULTIPLE_CHOICE" && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-sm font-medium">Answer options</label>
+
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Enter all 4 options, then select one correct answer.
+                    </p>
+                  </div>
+
+                  <div className="grid gap-3">
+                    {form.multipleChoiceOptions.map((option, index) => {
+                      const optionLabel = String.fromCharCode(65 + index);
+
+                      return (
+                        <label
+                          key={index}
+                          className={`flex gap-3 rounded-xl border p-3 transition dark:border-zinc-800 ${form.correctOptionIndex === index
+                            ? "border-emerald-400 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-950/30"
+                            : "bg-white hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900"
+                            }`}
+                        >
+                          <input
+                            type="radio"
+                            name="correctOption"
+                            checked={form.correctOptionIndex === index}
+                            onChange={() => update("correctOptionIndex", index)}
+                            className="mt-3"
+                          />
+
+                          <div className="flex-1">
+                            <div className="mb-1 flex items-center justify-between gap-2">
+                              <span className="text-sm font-medium">
+                                Option {optionLabel}
+                              </span>
+
+                              {form.correctOptionIndex === index && (
+                                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                                  Correct answer
+                                </span>
+                              )}
+                            </div>
+
+                            <input
+                              required
+                              value={option}
+                              onChange={(e) =>
+                                updateMultipleChoiceOption(
+                                  index,
+                                  e.target.value
+                                )
+                              }
+                              className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
+                              placeholder={`Enter option ${optionLabel}`}
+                            />
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {form.type === "TRUE_FALSE" && (
+                <div className="space-y-3">
+                  <label className="text-sm font-medium">Correct answer</label>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label
+                      className={`flex cursor-pointer items-center gap-3 rounded-xl border p-4 dark:border-zinc-800 ${form.trueFalseCorrectAnswer === "true"
+                        ? "border-emerald-400 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-950/30"
+                        : "hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                        }`}
+                    >
+                      <input
+                        type="radio"
+                        name="trueFalseCorrectAnswer"
+                        checked={form.trueFalseCorrectAnswer === "true"}
+                        onChange={() =>
+                          update("trueFalseCorrectAnswer", "true")
+                        }
+                      />
+
+                      <span className="text-sm font-medium">True</span>
+                    </label>
+
+                    <label
+                      className={`flex cursor-pointer items-center gap-3 rounded-xl border p-4 dark:border-zinc-800 ${form.trueFalseCorrectAnswer === "false"
+                        ? "border-emerald-400 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-950/30"
+                        : "hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                        }`}
+                    >
+                      <input
+                        type="radio"
+                        name="trueFalseCorrectAnswer"
+                        checked={form.trueFalseCorrectAnswer === "false"}
+                        onChange={() =>
+                          update("trueFalseCorrectAnswer", "false")
+                        }
+                      />
+
+                      <span className="text-sm font-medium">False</span>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {form.type === "FILL_IN_THE_BLANK" && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Correct answer</label>
+
+                  <input
+                    required
+                    value={form.correctTextAnswer}
+                    onChange={(e) =>
+                      update("correctTextAnswer", e.target.value)
+                    }
+                    className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
+                    placeholder="Example: JavaScript"
+                  />
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Answer explanation
+                </label>
+
+                <textarea
+                  rows={3}
+                  value={form.explanation}
+                  onChange={(e) => update("explanation", e.target.value)}
+                  className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
+                  placeholder="Optional. This explanation can be shown when learners review their result."
+                />
+              </div>
+
+              <div className="sticky bottom-0 -mx-5 -mb-5 flex justify-end gap-2 border-t bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
+                <button
+                  type="button"
+                  onClick={closeQuestionModal}
+                  disabled={saving}
+                  className="rounded-lg border px-4 py-2 text-sm hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  disabled={saving}
+                  className="inline-flex items-center rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
+                >
+                  {saving ? (
+                    "Saving..."
+                  ) : isEditing ? (
+                    <>
+                      <Pencil className="mr-2 h-4 w-4" />
+                      Update question
+                    </>
+                  ) : (
+                    <>
+                      <PlusCircle className="mr-2 h-4 w-4" />
+                      Add question
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {questionToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
           <div className="w-full max-w-md rounded-xl border bg-white p-5 shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
             <h2 className="text-lg font-semibold">Delete question?</h2>
 
             <p className="mt-2 text-sm text-zinc-500">
-              This question will be removed from the draft assessment. This
-              action cannot be undone.
+              This question will be removed from the assessment. This action
+              cannot be undone.
             </p>
 
             <div className="mt-4 rounded-lg bg-zinc-50 p-3 text-sm dark:bg-zinc-900">
@@ -736,7 +933,7 @@ export default function AssessmentQuestionsPage({ params }: PageProps) {
                 className="inline-flex items-center rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
               >
                 <Trash2 className="mr-2 h-4 w-4" />
-                {deleting ? "Deleting..." : "Delete"}
+                {deleting ? "Deleting..." : "Delete question"}
               </button>
             </div>
           </div>

@@ -37,6 +37,17 @@ type ConfirmModalState = {
   onConfirm: (() => Promise<void>) | null;
 };
 
+type ResultModalState = {
+  open: boolean;
+  title: string;
+  message: string;
+};
+
+type DetailModalState = {
+  open: boolean;
+  user: UserItem | null;
+};
+
 export default function AdminUsersPage() {
   const { user, loading: authLoading } = useAuth();
 
@@ -45,8 +56,8 @@ export default function AdminUsersPage() {
   const [tableLoading, setTableLoading] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
 
+  const [formModalOpen, setFormModalOpen] = useState(false);
   const [formMode, setFormMode] = useState<FormMode>("create");
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
@@ -67,6 +78,7 @@ export default function AdminUsersPage() {
   const [filterEmailVerified, setFilterEmailVerified] = useState<boolean | "all">(
     "all"
   );
+
   const [sortBy, setSortBy] = useState<
     "createdAt" | "fullName" | "email" | "role"
   >("createdAt");
@@ -84,7 +96,84 @@ export default function AdminUsersPage() {
     onConfirm: null,
   });
 
+  const [resultModal, setResultModal] = useState<ResultModalState>({
+    open: false,
+    title: "",
+    message: "",
+  });
+
+  const [detailModal, setDetailModal] = useState<DetailModalState>({
+    open: false,
+    user: null,
+  });
+
   const isAdmin = user?.role === "ADMIN";
+
+  const formatEnumLabel = (value?: string | null) => {
+    if (!value) return "-";
+
+    return value
+      .toLowerCase()
+      .split("_")
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
+  };
+
+  const formatDateInput = (value?: string | Date | null) => {
+    if (!value) return "";
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) return "";
+
+    return date.toISOString().split("T")[0];
+  };
+
+  const formatDateTime = (value?: string | Date | null) => {
+    if (!value) return "-";
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) return "-";
+
+    return date.toLocaleString("vi-VN", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  const openResultModal = (title: string, message: string) => {
+    setResultModal({
+      open: true,
+      title,
+      message,
+    });
+  };
+
+  const closeResultModal = () => {
+    setResultModal({
+      open: false,
+      title: "",
+      message: "",
+    });
+  };
+
+  const openDetailModal = (item: UserItem) => {
+    setDetailModal({
+      open: true,
+      user: item,
+    });
+  };
+
+  const closeDetailModal = () => {
+    setDetailModal({
+      open: false,
+      user: null,
+    });
+  };
 
   const loadUsers = async () => {
     setTableLoading(true);
@@ -105,42 +194,6 @@ export default function AdminUsersPage() {
     loadUsers();
   }, [isAdmin]);
 
-  useEffect(() => {
-    if (!success) return;
-
-    const timer = setTimeout(() => {
-      setSuccess(null);
-    }, 3000);
-
-    return () => clearTimeout(timer);
-  }, [success]);
-
-  const formatDateTime = (value?: string | Date | null) => {
-    if (!value) return "-";
-
-    const date = new Date(value);
-
-    if (Number.isNaN(date.getTime())) return "-";
-
-    return date.toLocaleString("vi-VN", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
-
-  const formatDateInput = (value?: string | Date | null) => {
-    if (!value) return "";
-
-    const date = new Date(value);
-
-    if (Number.isNaN(date.getTime())) return "";
-
-    return date.toISOString().split("T")[0];
-  };
-
   const filteredUsers = useMemo(() => {
     let result = [...users];
 
@@ -148,7 +201,6 @@ export default function AdminUsersPage() {
 
     if (keyword) {
       result = result.filter((item) => {
-        const idValue = item.id?.toLowerCase() || "";
         const nameValue = item.fullName?.toLowerCase() || "";
         const emailValue = item.email?.toLowerCase() || "";
         const phoneValue = item.phoneNumber?.toLowerCase() || "";
@@ -156,7 +208,6 @@ export default function AdminUsersPage() {
         const genderValue = item.gender?.toLowerCase() || "";
 
         return (
-          idValue.includes(keyword) ||
           nameValue.includes(keyword) ||
           emailValue.includes(keyword) ||
           phoneValue.includes(keyword) ||
@@ -234,17 +285,6 @@ export default function AdminUsersPage() {
     }
   }, [page, totalPages]);
 
-  const closeConfirmModal = () => {
-    setConfirmModal({
-      open: false,
-      title: "",
-      message: "",
-      confirmText: "Confirm",
-      variant: "danger",
-      onConfirm: null,
-    });
-  };
-
   const resetForm = () => {
     setFormMode("create");
     setSelectedUserId(null);
@@ -263,17 +303,20 @@ export default function AdminUsersPage() {
     setError(null);
   };
 
-  const handleNewUser = () => {
-    resetForm();
-    setSuccess(null);
+  const closeFormModal = () => {
+    if (loading) return;
 
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    });
+    setFormModalOpen(false);
+    resetForm();
   };
 
-  const handleEdit = (item: UserItem) => {
+  const openCreateModal = () => {
+    resetForm();
+    setFormMode("create");
+    setFormModalOpen(true);
+  };
+
+  const openEditModal = (item: UserItem) => {
     setFormMode("edit");
     setSelectedUserId(item.id);
 
@@ -289,11 +332,17 @@ export default function AdminUsersPage() {
     setEmailVerified(Boolean(item.emailVerified));
 
     setError(null);
-    setSuccess(null);
+    setFormModalOpen(true);
+  };
 
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
+  const closeConfirmModal = () => {
+    setConfirmModal({
+      open: false,
+      title: "",
+      message: "",
+      confirmText: "Confirm",
+      variant: "danger",
+      onConfirm: null,
     });
   };
 
@@ -309,18 +358,25 @@ export default function AdminUsersPage() {
       onConfirm: async () => {
         setLoading(true);
         setError(null);
-        setSuccess(null);
 
         try {
           await api.delete(`/v1/admin/users/${item.id}`);
-          setSuccess("User deleted successfully");
 
           if (selectedUserId === item.id) {
             resetForm();
           }
 
+          if (detailModal.user?.id === item.id) {
+            closeDetailModal();
+          }
+
           await loadUsers();
           closeConfirmModal();
+
+          openResultModal(
+            "User deleted",
+            "The user has been deleted successfully."
+          );
         } catch (err: any) {
           setError(err?.response?.data?.message || "Delete failed");
         } finally {
@@ -414,7 +470,6 @@ export default function AdminUsersPage() {
 
     setLoading(true);
     setError(null);
-    setSuccess(null);
 
     if (!fullName.trim()) {
       setError("Full name is required");
@@ -456,16 +511,29 @@ export default function AdminUsersPage() {
     try {
       if (formMode === "create") {
         await api.post("/v1/admin/users", buildCreatePayload());
-        setSuccess("User created successfully");
+
+        setFormModalOpen(false);
+        resetForm();
+        await loadUsers();
+
+        openResultModal(
+          "User created",
+          "The new user has been created successfully."
+        );
       }
 
       if (formMode === "edit" && selectedUserId) {
         await api.patch(`/v1/admin/users/${selectedUserId}`, buildUpdatePayload());
-        setSuccess("User updated successfully");
-      }
 
-      resetForm();
-      await loadUsers();
+        setFormModalOpen(false);
+        resetForm();
+        await loadUsers();
+
+        openResultModal(
+          "User updated",
+          "The user information has been updated successfully."
+        );
+      }
     } catch (err: any) {
       const message = err?.response?.data?.message;
 
@@ -532,7 +600,7 @@ export default function AdminUsersPage() {
   return (
     <>
       <div className="min-h-screen bg-zinc-50 p-6">
-        <div className="mx-auto max-w-[1600px] space-y-6">
+        <div className="mx-auto max-w-[1400px] space-y-6">
           <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div>
@@ -540,13 +608,14 @@ export default function AdminUsersPage() {
                   Admin — Users
                 </h2>
                 <p className="mt-1 text-sm text-zinc-600">
-                  Create, edit, search, filter and manage users from the admin panel.
+                  Search, filter, create, edit and manage users from the admin
+                  panel.
                 </p>
               </div>
 
               <button
                 type="button"
-                onClick={handleNewUser}
+                onClick={openCreateModal}
                 disabled={loading}
                 className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400"
               >
@@ -555,225 +624,11 @@ export default function AdminUsersPage() {
             </div>
           </div>
 
-          {(error || success) && (
-            <div className="space-y-3">
-              {error && (
-                <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-                  {error}
-                </div>
-              )}
-
-              {success && (
-                <div className="rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-700">
-                  {success}
-                </div>
-              )}
+          {error && (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+              {error}
             </div>
           )}
-
-          <form
-            onSubmit={handleSubmit}
-            className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm"
-          >
-            <div className="mb-6 flex flex-col gap-2 border-b border-zinc-200 pb-4 md:flex-row md:items-center md:justify-between">
-              <div>
-                <h3 className="text-xl font-semibold text-zinc-900">
-                  {formMode === "create" ? "Create User" : "Edit User"}
-                </h3>
-                <p className="text-sm text-zinc-500">
-                  {formMode === "create"
-                    ? "Fill in the information below to create a new user."
-                    : "Update the selected user's information below."}
-                </p>
-              </div>
-
-              {formMode === "edit" && selectedUserId && (
-                <div className="rounded-lg bg-zinc-100 px-3 py-2 text-xs text-zinc-600">
-                  Editing ID: <span className="font-medium">{selectedUserId}</span>
-                </div>
-              )}
-            </div>
-
-            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-              <label className="space-y-2 text-sm">
-                <span className="font-medium text-zinc-700">Full Name *</span>
-                <input
-                  className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  disabled={loading}
-                  required
-                />
-              </label>
-
-              <label className="space-y-2 text-sm">
-                <span className="font-medium text-zinc-700">Email *</span>
-                <input
-                  type="email"
-                  className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  disabled={loading}
-                  required
-                />
-              </label>
-
-              <label className="space-y-2 text-sm">
-                <span className="font-medium text-zinc-700">
-                  Password {formMode === "edit" ? "(leave blank to keep current)" : "*"}
-                </span>
-                <input
-                  type="password"
-                  className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  disabled={loading}
-                  required={formMode === "create"}
-                />
-              </label>
-
-              <label className="space-y-2 text-sm">
-                <span className="font-medium text-zinc-700">Phone Number</span>
-                <input
-                  type="text"
-                  placeholder="+84123456789"
-                  className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
-                  value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
-                  disabled={loading}
-                />
-              </label>
-
-              <label className="space-y-2 text-sm">
-                <span className="font-medium text-zinc-700">Date of Birth</span>
-                <input
-                  type="date"
-                  className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
-                  value={dateOfBirth}
-                  onChange={(e) => setDateOfBirth(e.target.value)}
-                  disabled={loading}
-                />
-              </label>
-
-              <label className="space-y-2 text-sm">
-                <span className="font-medium text-zinc-700">Gender</span>
-                <select
-                  className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
-                  value={gender}
-                  onChange={(e) => setGender(e.target.value as Gender | "")}
-                  disabled={loading}
-                >
-                  <option value="">Not set</option>
-                  {genderOptions.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="space-y-2 text-sm">
-                <span className="font-medium text-zinc-700">Role *</span>
-                <select
-                  className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
-                  value={role}
-                  onChange={(e) => setRole(e.target.value as Role)}
-                  disabled={loading}
-                  required
-                >
-                  {roleOptions.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              {formMode === "edit" && (
-                <>
-                  <label className="space-y-2 text-sm">
-                    <span className="font-medium text-zinc-700">Status</span>
-                    <select
-                      className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
-                      value={String(isActive)}
-                      onChange={(e) => setIsActive(e.target.value === "true")}
-                      disabled={loading}
-                    >
-                      <option value="true">Active</option>
-                      <option value="false">Inactive</option>
-                    </select>
-                  </label>
-
-                  <label className="space-y-2 text-sm">
-                    <span className="font-medium text-zinc-700">
-                      Email Verified
-                    </span>
-                    <select
-                      className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
-                      value={String(emailVerified)}
-                      onChange={(e) => setEmailVerified(e.target.value === "true")}
-                      disabled={loading}
-                    >
-                      <option value="true">Verified</option>
-                      <option value="false">Not verified</option>
-                    </select>
-                  </label>
-                </>
-              )}
-
-              <label className="space-y-2 text-sm md:col-span-2 xl:col-span-3">
-                <span className="font-medium text-zinc-700">Avatar URL</span>
-                <input
-                  type="url"
-                  placeholder="https://example.com/avatar.jpg"
-                  className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
-                  value={avatarUrl}
-                  onChange={(e) => setAvatarUrl(e.target.value)}
-                  disabled={loading}
-                />
-              </label>
-            </div>
-
-            {avatarUrl && (
-              <div className="mt-5 flex items-center gap-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-                <img
-                  src={avatarUrl}
-                  alt="Avatar preview"
-                  className="h-14 w-14 rounded-full border object-cover"
-                />
-
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-zinc-800">
-                    Avatar Preview
-                  </p>
-                  <p className="truncate text-xs text-zinc-500">{avatarUrl}</p>
-                </div>
-              </div>
-            )}
-
-            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-              <button
-                type="submit"
-                disabled={loading}
-                className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400"
-              >
-                {loading
-                  ? "Saving..."
-                  : formMode === "create"
-                  ? "Create User"
-                  : "Update User"}
-              </button>
-
-              <button
-                type="button"
-                onClick={resetForm}
-                disabled={loading}
-                className="rounded-xl border border-zinc-300 bg-white px-5 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Reset Form
-              </button>
-            </div>
-          </form>
 
           <div className="rounded-2xl border border-zinc-200 bg-white shadow-sm">
             <div className="border-b border-zinc-200 p-6">
@@ -783,12 +638,14 @@ export default function AdminUsersPage() {
                     User Datatable
                   </h3>
                   <p className="text-sm text-zinc-500">
-                    Showing all user information returned from the admin user API.
+                    Showing important user information returned from the admin
+                    user API.
                   </p>
                 </div>
 
                 <div className="text-sm text-zinc-500">
-                  Total: <span className="font-medium text-zinc-800">{total}</span>{" "}
+                  Total:{" "}
+                  <span className="font-medium text-zinc-800">{total}</span>{" "}
                   users
                 </div>
               </div>
@@ -796,7 +653,7 @@ export default function AdminUsersPage() {
               <div className="grid gap-4 md:grid-cols-5">
                 <input
                   type="text"
-                  placeholder="Search by id, name, email, phone, role..."
+                  placeholder="Search by name, email, phone, role..."
                   className="rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                   value={search}
                   onChange={(e) => {
@@ -816,7 +673,7 @@ export default function AdminUsersPage() {
                   <option value="all">All Roles</option>
                   {roleOptions.map((item) => (
                     <option key={item} value={item}>
-                      {item}
+                      {formatEnumLabel(item)}
                     </option>
                   ))}
                 </select>
@@ -865,7 +722,9 @@ export default function AdminUsersPage() {
                   onChange={(e) => {
                     const [field, order] = e.target.value.split("-");
 
-                    setSortBy(field as "createdAt" | "fullName" | "email" | "role");
+                    setSortBy(
+                      field as "createdAt" | "fullName" | "email" | "role"
+                    );
                     setSortOrder(order as "asc" | "desc");
                     setPage(1);
                   }}
@@ -883,33 +742,31 @@ export default function AdminUsersPage() {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1750px] border-collapse text-sm">
+              <table className="w-full min-w-[1200px] border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-zinc-200 bg-zinc-50 text-zinc-600">
                     <th className="px-4 py-3 text-left font-semibold">Avatar</th>
-                    <th className="px-4 py-3 text-left font-semibold">ID</th>
-                    <th className="px-4 py-3 text-left font-semibold">Full Name</th>
+                    <th className="px-4 py-3 text-left font-semibold">
+                      Full Name
+                    </th>
                     <th className="px-4 py-3 text-left font-semibold">Email</th>
                     <th className="px-4 py-3 text-left font-semibold">Phone</th>
-                    <th className="px-4 py-3 text-center font-semibold">Gender</th>
+                    <th className="px-4 py-3 text-center font-semibold">
+                      Gender
+                    </th>
                     <th className="px-4 py-3 text-left font-semibold">
                       Date of Birth
                     </th>
                     <th className="px-4 py-3 text-center font-semibold">Role</th>
-                    <th className="px-4 py-3 text-center font-semibold">Status</th>
+                    <th className="px-4 py-3 text-center font-semibold">
+                      Status
+                    </th>
                     <th className="px-4 py-3 text-center font-semibold">
                       Email Verified
                     </th>
-                    <th className="px-4 py-3 text-left font-semibold">
-                      Last Login
+                    <th className="px-4 py-3 text-center font-semibold">
+                      Actions
                     </th>
-                    <th className="px-4 py-3 text-left font-semibold">
-                      Created At
-                    </th>
-                    <th className="px-4 py-3 text-left font-semibold">
-                      Updated At
-                    </th>
-                    <th className="px-4 py-3 text-center font-semibold">Actions</th>
                   </tr>
                 </thead>
 
@@ -917,7 +774,7 @@ export default function AdminUsersPage() {
                   {tableLoading ? (
                     <tr>
                       <td
-                        colSpan={14}
+                        colSpan={10}
                         className="px-4 py-8 text-center text-zinc-500"
                       >
                         Loading users...
@@ -926,7 +783,7 @@ export default function AdminUsersPage() {
                   ) : paginatedUsers.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={14}
+                        colSpan={10}
                         className="px-4 py-8 text-center text-zinc-500"
                       >
                         No users found
@@ -954,10 +811,6 @@ export default function AdminUsersPage() {
                           )}
                         </td>
 
-                        <td className="max-w-[180px] truncate px-4 py-3 font-mono text-xs text-zinc-500">
-                          {item.id || "-"}
-                        </td>
-
                         <td className="px-4 py-3 font-medium text-zinc-900">
                           {item.fullName || "-"}
                         </td>
@@ -973,7 +826,7 @@ export default function AdminUsersPage() {
                         <td className="px-4 py-3 text-center">
                           {item.gender ? (
                             <span className="inline-flex rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">
-                              {item.gender}
+                              {formatEnumLabel(item.gender)}
                             </span>
                           ) : (
                             "-"
@@ -986,7 +839,7 @@ export default function AdminUsersPage() {
 
                         <td className="px-4 py-3 text-center">
                           <span className="inline-flex rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">
-                            {item.role || "-"}
+                            {formatEnumLabel(item.role)}
                           </span>
                         </td>
 
@@ -1014,23 +867,20 @@ export default function AdminUsersPage() {
                           </span>
                         </td>
 
-                        <td className="px-4 py-3 text-zinc-600">
-                          {formatDateTime(item.lastLoginAt)}
-                        </td>
-
-                        <td className="px-4 py-3 text-zinc-600">
-                          {formatDateTime(item.createdAt)}
-                        </td>
-
-                        <td className="px-4 py-3 text-zinc-600">
-                          {formatDateTime(item.updatedAt)}
-                        </td>
-
                         <td className="px-4 py-3">
                           <div className="flex justify-center gap-2">
                             <button
                               type="button"
-                              onClick={() => handleEdit(item)}
+                              onClick={() => openDetailModal(item)}
+                              disabled={loading}
+                              className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              Info
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => openEditModal(item)}
                               disabled={loading}
                               className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
                             >
@@ -1103,6 +953,420 @@ export default function AdminUsersPage() {
         </div>
       </div>
 
+      {formModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
+            <form onSubmit={handleSubmit}>
+              <div className="sticky top-0 z-10 border-b border-zinc-200 bg-white p-6">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-xl font-semibold text-zinc-900">
+                      {formMode === "create" ? "Create User" : "Edit User"}
+                    </h3>
+                    <p className="mt-1 text-sm text-zinc-500">
+                      {formMode === "create"
+                        ? "Fill in the information below to create a new user."
+                        : "Update the selected user's information below."}
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={closeFormModal}
+                    disabled={loading}
+                    className="rounded-full border border-zinc-200 px-3 py-1.5 text-sm text-zinc-600 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-5 p-6">
+                <div className="grid gap-5 md:grid-cols-2">
+                  <label className="space-y-2 text-sm">
+                    <span className="font-medium text-zinc-700">
+                      Full Name *
+                    </span>
+                    <input
+                      className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      disabled={loading}
+                      required
+                    />
+                  </label>
+
+                  <label className="space-y-2 text-sm">
+                    <span className="font-medium text-zinc-700">Email *</span>
+                    <input
+                      type="email"
+                      className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      disabled={loading}
+                      required
+                    />
+                  </label>
+
+                  <label className="space-y-2 text-sm">
+                    <span className="font-medium text-zinc-700">
+                      Password{" "}
+                      {formMode === "edit" ? "(leave blank to keep current)" : "*"}
+                    </span>
+                    <input
+                      type="password"
+                      className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      disabled={loading}
+                      required={formMode === "create"}
+                    />
+                  </label>
+
+                  <label className="space-y-2 text-sm">
+                    <span className="font-medium text-zinc-700">Phone Number</span>
+                    <input
+                      type="text"
+                      placeholder="+84123456789"
+                      className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value)}
+                      disabled={loading}
+                    />
+                  </label>
+
+                  <label className="space-y-2 text-sm">
+                    <span className="font-medium text-zinc-700">
+                      Date of Birth
+                    </span>
+                    <input
+                      type="date"
+                      className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
+                      value={dateOfBirth}
+                      onChange={(e) => setDateOfBirth(e.target.value)}
+                      disabled={loading}
+                    />
+                  </label>
+
+                  <label className="space-y-2 text-sm">
+                    <span className="font-medium text-zinc-700">Gender</span>
+                    <select
+                      className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
+                      value={gender}
+                      onChange={(e) => setGender(e.target.value as Gender | "")}
+                      disabled={loading}
+                    >
+                      <option value="">Not set</option>
+                      {genderOptions.map((item) => (
+                        <option key={item} value={item}>
+                          {formatEnumLabel(item)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="space-y-2 text-sm">
+                    <span className="font-medium text-zinc-700">Role *</span>
+                    <select
+                      className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
+                      value={role}
+                      onChange={(e) => setRole(e.target.value as Role)}
+                      disabled={loading}
+                      required
+                    >
+                      {roleOptions.map((item) => (
+                        <option key={item} value={item}>
+                          {formatEnumLabel(item)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  {formMode === "edit" && (
+                    <>
+                      <label className="space-y-2 text-sm">
+                        <span className="font-medium text-zinc-700">Status</span>
+                        <select
+                          className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
+                          value={String(isActive)}
+                          onChange={(e) => setIsActive(e.target.value === "true")}
+                          disabled={loading}
+                        >
+                          <option value="true">Active</option>
+                          <option value="false">Inactive</option>
+                        </select>
+                      </label>
+
+                      <label className="space-y-2 text-sm">
+                        <span className="font-medium text-zinc-700">
+                          Email Verified
+                        </span>
+                        <select
+                          className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
+                          value={String(emailVerified)}
+                          onChange={(e) =>
+                            setEmailVerified(e.target.value === "true")
+                          }
+                          disabled={loading}
+                        >
+                          <option value="true">Verified</option>
+                          <option value="false">Not verified</option>
+                        </select>
+                      </label>
+                    </>
+                  )}
+
+                  <label className="space-y-2 text-sm md:col-span-2">
+                    <span className="font-medium text-zinc-700">Avatar URL</span>
+                    <input
+                      type="url"
+                      placeholder="https://example.com/avatar.jpg"
+                      className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
+                      value={avatarUrl}
+                      onChange={(e) => setAvatarUrl(e.target.value)}
+                      disabled={loading}
+                    />
+                  </label>
+                </div>
+
+                {avatarUrl && (
+                  <div className="flex items-center gap-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                    <img
+                      src={avatarUrl}
+                      alt="Avatar preview"
+                      className="h-14 w-14 rounded-full border object-cover"
+                    />
+
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-zinc-800">
+                        Avatar Preview
+                      </p>
+                      <p className="truncate text-xs text-zinc-500">
+                        {avatarUrl}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="sticky bottom-0 flex flex-col gap-3 border-t border-zinc-200 bg-white p-6 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={closeFormModal}
+                  disabled={loading}
+                  className="rounded-xl border border-zinc-300 bg-white px-5 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400"
+                >
+                  {loading
+                    ? "Saving..."
+                    : formMode === "create"
+                    ? "Create User"
+                    : "Update User"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {detailModal.open && detailModal.user && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
+            <div className="border-b border-zinc-200 p-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-xl font-semibold text-zinc-900">
+                    User Details
+                  </h3>
+                  <p className="mt-1 text-sm text-zinc-500">
+                    View full user information returned from the API.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={closeDetailModal}
+                  className="rounded-full border border-zinc-200 px-3 py-1.5 text-sm text-zinc-600 transition hover:bg-zinc-100"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-4 p-6">
+              <div className="flex items-center gap-4 rounded-xl border border-zinc-200 bg-zinc-50 p-4">
+                {detailModal.user.avatarUrl ? (
+                  <img
+                    src={detailModal.user.avatarUrl}
+                    alt={detailModal.user.fullName || "User avatar"}
+                    className="h-16 w-16 rounded-full border object-cover"
+                  />
+                ) : (
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-zinc-200 text-sm font-semibold text-zinc-500">
+                    N/A
+                  </div>
+                )}
+
+                <div className="min-w-0">
+                  <p className="font-semibold text-zinc-900">
+                    {detailModal.user.fullName || "-"}
+                  </p>
+                  <p className="truncate text-sm text-zinc-500">
+                    {detailModal.user.email || "-"}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <span className="inline-flex rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">
+                      {formatEnumLabel(detailModal.user.role)}
+                    </span>
+
+                    <span
+                      className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
+                        detailModal.user.isActive
+                          ? "bg-green-100 text-green-700"
+                          : "bg-red-100 text-red-700"
+                      }`}
+                    >
+                      {detailModal.user.isActive ? "Active" : "Inactive"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-xl border border-zinc-200 p-4">
+                  <p className="text-xs font-medium uppercase text-zinc-500">ID</p>
+                  <p className="mt-1 break-all font-mono text-sm text-zinc-800">
+                    {detailModal.user.id || "-"}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-zinc-200 p-4">
+                  <p className="text-xs font-medium uppercase text-zinc-500">
+                    Full Name
+                  </p>
+                  <p className="mt-1 text-sm text-zinc-800">
+                    {detailModal.user.fullName || "-"}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-zinc-200 p-4">
+                  <p className="text-xs font-medium uppercase text-zinc-500">
+                    Email
+                  </p>
+                  <p className="mt-1 break-all text-sm text-zinc-800">
+                    {detailModal.user.email || "-"}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-zinc-200 p-4">
+                  <p className="text-xs font-medium uppercase text-zinc-500">
+                    Phone Number
+                  </p>
+                  <p className="mt-1 text-sm text-zinc-800">
+                    {detailModal.user.phoneNumber || "-"}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-zinc-200 p-4">
+                  <p className="text-xs font-medium uppercase text-zinc-500">
+                    Gender
+                  </p>
+                  <p className="mt-1 text-sm text-zinc-800">
+                    {formatEnumLabel(detailModal.user.gender)}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-zinc-200 p-4">
+                  <p className="text-xs font-medium uppercase text-zinc-500">
+                    Date of Birth
+                  </p>
+                  <p className="mt-1 text-sm text-zinc-800">
+                    {formatDateInput(detailModal.user.dateOfBirth) || "-"}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-zinc-200 p-4">
+                  <p className="text-xs font-medium uppercase text-zinc-500">
+                    Role
+                  </p>
+                  <p className="mt-1 text-sm text-zinc-800">
+                    {formatEnumLabel(detailModal.user.role)}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-zinc-200 p-4">
+                  <p className="text-xs font-medium uppercase text-zinc-500">
+                    Email Verified
+                  </p>
+                  <span
+                    className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-medium ${
+                      detailModal.user.emailVerified
+                        ? "bg-green-100 text-green-700"
+                        : "bg-yellow-100 text-yellow-700"
+                    }`}
+                  >
+                    {detailModal.user.emailVerified ? "Verified" : "Not verified"}
+                  </span>
+                </div>
+
+                <div className="rounded-xl border border-zinc-200 p-4">
+                  <p className="text-xs font-medium uppercase text-zinc-500">
+                    Created At
+                  </p>
+                  <p className="mt-1 text-sm text-zinc-800">
+                    {formatDateTime(detailModal.user.createdAt)}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-zinc-200 p-4">
+                  <p className="text-xs font-medium uppercase text-zinc-500">
+                    Updated At
+                  </p>
+                  <p className="mt-1 text-sm text-zinc-800">
+                    {formatDateTime(detailModal.user.updatedAt)}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-zinc-200 p-4 md:col-span-2">
+                  <p className="text-xs font-medium uppercase text-zinc-500">
+                    Last Login
+                  </p>
+                  <p className="mt-1 text-sm text-zinc-800">
+                    {formatDateTime(detailModal.user.lastLoginAt)}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-zinc-200 p-4 md:col-span-2">
+                  <p className="text-xs font-medium uppercase text-zinc-500">
+                    Avatar URL
+                  </p>
+                  <p className="mt-1 break-all text-sm text-zinc-800">
+                    {detailModal.user.avatarUrl || "-"}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end border-t border-zinc-200 p-6">
+              <button
+                type="button"
+                onClick={closeDetailModal}
+                className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-blue-700"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {confirmModal.open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
@@ -1139,6 +1403,36 @@ export default function AdminUsersPage() {
                 className={`rounded-lg px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-60 ${getModalButtonStyle()}`}
               >
                 {loading ? "Processing..." : confirmModal.confirmText}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {resultModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="mb-5">
+              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-green-100 text-xl font-bold text-green-700">
+                ✓
+              </div>
+
+              <h3 className="text-lg font-semibold text-zinc-900">
+                {resultModal.title}
+              </h3>
+
+              <p className="mt-2 text-sm leading-6 text-zinc-600">
+                {resultModal.message}
+              </p>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={closeResultModal}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700"
+              >
+                OK
               </button>
             </div>
           </div>

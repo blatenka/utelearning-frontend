@@ -129,6 +129,44 @@ function getStatusBadgeVariant(status?: string) {
   return "secondary" as const;
 }
 
+function canDeleteCourse(course: InstructorCourse) {
+  const status = String(course.status || "").toUpperCase();
+
+  return status === "DRAFT";
+}
+
+function getDeleteDisabledReason(course: InstructorCourse) {
+  const status = String(course.status || "").toUpperCase();
+
+  if (status === "DRAFT") {
+    return "";
+  }
+
+  if (!status) {
+    return "Only draft courses can be deleted.";
+  }
+
+  if (
+    [
+      "PUBLISHED",
+      "APPROVED",
+      "PENDING_REVIEW",
+      "IN_REVIEW",
+      "SUBMITTED",
+      "SUBMITTED_FOR_REVIEW",
+      "UNDER_REVIEW",
+      "CHANGES_REQUESTED",
+      "REJECTED",
+      "NEEDS_REVISION",
+      "REVISION_REQUIRED",
+    ].includes(status)
+  ) {
+    return "Only draft courses can be deleted.";
+  }
+
+  return "Only draft courses can be deleted.";
+}
+
 export default function InstructorCoursesPage() {
   const [courses, setCourses] = useState<InstructorCourse[]>([]);
   const [courseToDelete, setCourseToDelete] =
@@ -224,8 +262,7 @@ export default function InstructorCoursesPage() {
         `/v1/instructor/courses/${course.id}/reviews/latest`
       );
 
-      const latestReview =
-        response.data?.data || response.data || null;
+      const latestReview = response.data?.data || response.data || null;
 
       setReviewModal({
         open: true,
@@ -253,8 +290,29 @@ export default function InstructorCoursesPage() {
     }
   }
 
+  function handleOpenDeleteModal(course: InstructorCourse) {
+    if (!canDeleteCourse(course)) {
+      showErrorModal(
+        getDeleteDisabledReason(course),
+        "Cannot delete course"
+      );
+      return;
+    }
+
+    setCourseToDelete(course);
+  }
+
   async function confirmDeleteDraft() {
     if (!courseToDelete) return;
+
+    if (!canDeleteCourse(courseToDelete)) {
+      setCourseToDelete(null);
+      showErrorModal(
+        getDeleteDisabledReason(courseToDelete),
+        "Cannot delete course"
+      );
+      return;
+    }
 
     try {
       setDeletingId(courseToDelete.id);
@@ -343,6 +401,9 @@ export default function InstructorCoursesPage() {
           <div className="grid gap-4">
             {courses.map((course) => {
               const hasReviewAttention = shouldHighlightReview(course);
+              const deleteAllowed = canDeleteCourse(course);
+              const deleteDisabled =
+                deletingId === course.id || !deleteAllowed;
 
               return (
                 <Card
@@ -441,10 +502,21 @@ export default function InstructorCoursesPage() {
                         </Button>
 
                         <Button
+                          type="button"
                           variant="destructive"
                           size="sm"
-                          disabled={deletingId === course.id}
-                          onClick={() => setCourseToDelete(course)}
+                          disabled={deleteDisabled}
+                          title={
+                            deleteAllowed
+                              ? "Delete draft course"
+                              : getDeleteDisabledReason(course)
+                          }
+                          onClick={() => handleOpenDeleteModal(course)}
+                          className={
+                            !deleteAllowed
+                              ? "cursor-not-allowed opacity-50"
+                              : undefined
+                          }
                         >
                           <Trash2 className="mr-2 h-4 w-4" />
                           {deletingId === course.id ? "Deleting..." : "Delete"}
@@ -492,7 +564,10 @@ export default function InstructorCoursesPage() {
                 <Button
                   type="button"
                   variant="destructive"
-                  disabled={deletingId === courseToDelete.id}
+                  disabled={
+                    deletingId === courseToDelete.id ||
+                    !canDeleteCourse(courseToDelete)
+                  }
                   onClick={confirmDeleteDraft}
                 >
                   {deletingId === courseToDelete.id

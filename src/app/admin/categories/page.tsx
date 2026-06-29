@@ -30,6 +30,11 @@ type AlertModalState = {
   variant: "success" | "error" | "info" | "warning";
 };
 
+type DetailModalState = {
+  open: boolean;
+  category: AdminCourseCategory | null;
+};
+
 export default function AdminCategoriesPage() {
   const { user, loading: authLoading } = useAuth();
 
@@ -38,7 +43,6 @@ export default function AdminCategoriesPage() {
   const [tableLoading, setTableLoading] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
 
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
@@ -50,6 +54,7 @@ export default function AdminCategoriesPage() {
   const [sortBy, setSortBy] = useState<AdminCategorySortBy>("createdAt");
   const [sortOrder, setSortOrder] = useState<AdminCategorySortOrder>("desc");
 
+  const [formModalOpen, setFormModalOpen] = useState(false);
   const [formMode, setFormMode] = useState<FormMode>("create");
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(
     null
@@ -77,6 +82,11 @@ export default function AdminCategoriesPage() {
     title: "",
     message: "",
     variant: "info",
+  });
+
+  const [detailModal, setDetailModal] = useState<DetailModalState>({
+    open: false,
+    category: null,
   });
 
   const isAdmin = user?.role === "ADMIN";
@@ -130,6 +140,20 @@ export default function AdminCategoriesPage() {
     });
   };
 
+  const openDetailModal = (category: AdminCourseCategory) => {
+    setDetailModal({
+      open: true,
+      category,
+    });
+  };
+
+  const closeDetailModal = () => {
+    setDetailModal({
+      open: false,
+      category: null,
+    });
+  };
+
   const loadCategories = async () => {
     setTableLoading(true);
     setError(null);
@@ -172,27 +196,6 @@ export default function AdminCategoriesPage() {
     sortOrder,
   ]);
 
-  useEffect(() => {
-    if (!success) return;
-
-    const timer = setTimeout(() => {
-      setSuccess(null);
-    }, 3000);
-
-    return () => clearTimeout(timer);
-  }, [success]);
-
-  const closeConfirmModal = () => {
-    setConfirmModal({
-      open: false,
-      title: "",
-      message: "",
-      confirmText: "Confirm",
-      variant: "danger",
-      onConfirm: null,
-    });
-  };
-
   const resetForm = () => {
     setFormMode("create");
     setSelectedCategoryId(null);
@@ -206,17 +209,13 @@ export default function AdminCategoriesPage() {
     setError(null);
   };
 
-  const handleNewCategory = () => {
+  const openCreateModal = () => {
     resetForm();
-    setSuccess(null);
-
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    });
+    setFormMode("create");
+    setFormModalOpen(true);
   };
 
-  const handleEdit = (category: AdminCourseCategory) => {
+  const openEditModal = (category: AdminCourseCategory) => {
     const normalizedCategory = normalizeAdminCategory(category);
 
     setFormMode("edit");
@@ -231,11 +230,24 @@ export default function AdminCategoriesPage() {
     });
 
     setError(null);
-    setSuccess(null);
+    setFormModalOpen(true);
+  };
 
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
+  const closeFormModal = () => {
+    if (loading) return;
+
+    setFormModalOpen(false);
+    resetForm();
+  };
+
+  const closeConfirmModal = () => {
+    setConfirmModal({
+      open: false,
+      title: "",
+      message: "",
+      confirmText: "Confirm",
+      variant: "danger",
+      onConfirm: null,
     });
   };
 
@@ -274,39 +286,36 @@ export default function AdminCategoriesPage() {
     showAlertModal(title, message, "error");
   };
 
-  const setSuccessWithModal = (message: string) => {
-    setSuccess(message);
-    showAlertModal("Success", message, "success");
-  };
-
   const validateForm = () => {
     if (!formData.name.trim()) {
-      showAlertModal("Validation error", "Category name is required", "warning");
-      setError("Category name is required");
+      const message = "Category name is required";
+
+      setError(message);
+      showAlertModal("Validation error", message, "warning");
       return false;
     }
 
     if (formData.name.trim().length > 100 && formMode === "create") {
       const message = "Category name must be shorter than 100 characters";
 
-      showAlertModal("Validation error", message, "warning");
       setError(message);
+      showAlertModal("Validation error", message, "warning");
       return false;
     }
 
     if (formData.description.trim().length > 500 && formMode === "create") {
       const message = "Description must be shorter than 500 characters";
 
-      showAlertModal("Validation error", message, "warning");
       setError(message);
+      showAlertModal("Validation error", message, "warning");
       return false;
     }
 
     if (formMode === "edit" && Number.isNaN(Number(formData.order))) {
       const message = "Order must be a number";
 
-      showAlertModal("Validation error", message, "warning");
       setError(message);
+      showAlertModal("Validation error", message, "warning");
       return false;
     }
 
@@ -318,7 +327,6 @@ export default function AdminCategoriesPage() {
 
     setLoading(true);
     setError(null);
-    setSuccess(null);
 
     if (!validateForm()) {
       setLoading(false);
@@ -328,7 +336,17 @@ export default function AdminCategoriesPage() {
     try {
       if (formMode === "create") {
         await adminCourseCategoryService.createCategory(buildCreatePayload());
-        setSuccessWithModal("Category created successfully");
+
+        setFormModalOpen(false);
+        resetForm();
+        setPage(1);
+        await loadCategories();
+
+        showAlertModal(
+          "Category created",
+          "The category has been created successfully.",
+          "success"
+        );
       }
 
       if (formMode === "edit" && selectedCategoryId) {
@@ -336,12 +354,17 @@ export default function AdminCategoriesPage() {
           selectedCategoryId,
           buildUpdatePayload()
         );
-        setSuccessWithModal("Category updated successfully");
-      }
 
-      resetForm();
-      setPage(1);
-      await loadCategories();
+        setFormModalOpen(false);
+        resetForm();
+        await loadCategories();
+
+        showAlertModal(
+          "Category updated",
+          "The category has been updated successfully.",
+          "success"
+        );
+      }
     } catch (err: any) {
       const message = getErrorMessage(err, "Save failed");
 
@@ -361,11 +384,9 @@ export default function AdminCategoriesPage() {
       onConfirm: async () => {
         setLoading(true);
         setError(null);
-        setSuccess(null);
 
         try {
           await adminCourseCategoryService.softDeleteCategory(category.id);
-          setSuccessWithModal("Category soft deleted");
 
           if (selectedCategoryId === category.id) {
             resetForm();
@@ -373,6 +394,12 @@ export default function AdminCategoriesPage() {
 
           await loadCategories();
           closeConfirmModal();
+
+          showAlertModal(
+            "Category deleted",
+            "The category has been soft deleted successfully.",
+            "success"
+          );
         } catch (err: any) {
           const message = getErrorMessage(err, "Delete failed");
 
@@ -394,13 +421,18 @@ export default function AdminCategoriesPage() {
       onConfirm: async () => {
         setLoading(true);
         setError(null);
-        setSuccess(null);
 
         try {
           await adminCourseCategoryService.restoreCategory(category.id);
-          setSuccessWithModal("Category restored");
+
           await loadCategories();
           closeConfirmModal();
+
+          showAlertModal(
+            "Category restored",
+            "The category has been restored successfully.",
+            "success"
+          );
         } catch (err: any) {
           const message = getErrorMessage(err, "Restore failed");
 
@@ -427,16 +459,11 @@ export default function AdminCategoriesPage() {
       onConfirm: async () => {
         setLoading(true);
         setError(null);
-        setSuccess(null);
 
         try {
           await adminCourseCategoryService.updateActiveStatus(
             normalizedCategory.id,
             nextStatus
-          );
-
-          setSuccessWithModal(
-            `Category ${nextStatus ? "activated" : "deactivated"}`
           );
 
           if (selectedCategoryId === normalizedCategory.id) {
@@ -448,6 +475,14 @@ export default function AdminCategoriesPage() {
 
           await loadCategories();
           closeConfirmModal();
+
+          showAlertModal(
+            nextStatus ? "Category activated" : "Category deactivated",
+            nextStatus
+              ? "The category has been activated successfully."
+              : "The category has been deactivated successfully.",
+            "success"
+          );
         } catch (err: any) {
           const message = getErrorMessage(err, "Update failed");
 
@@ -545,7 +580,7 @@ export default function AdminCategoriesPage() {
     <RoleGuard allowedRoles={["ADMIN"]}>
       <>
         <div className="min-h-screen bg-zinc-50 p-6">
-          <div className="mx-auto max-w-[1500px] space-y-6">
+          <div className="mx-auto max-w-[1300px] space-y-6">
             <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
               <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
@@ -553,13 +588,13 @@ export default function AdminCategoriesPage() {
                     Admin — Categories
                   </h2>
                   <p className="mt-1 text-sm text-zinc-600">
-                    Create, edit, search, filter and manage course categories.
+                    Search, filter, create, edit and manage course categories.
                   </p>
                 </div>
 
                 <button
                   type="button"
-                  onClick={handleNewCategory}
+                  onClick={openCreateModal}
                   disabled={loading}
                   className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400"
                 >
@@ -568,238 +603,11 @@ export default function AdminCategoriesPage() {
               </div>
             </div>
 
-            {(error || success) && (
-              <div className="space-y-3">
-                {error && (
-                  <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-                    {error}
-                  </div>
-                )}
-
-                {success && (
-                  <div className="rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-700">
-                    {success}
-                  </div>
-                )}
+            {error && (
+              <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                {error}
               </div>
             )}
-
-            <form
-              onSubmit={handleSubmit}
-              className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm"
-            >
-              <div className="mb-6 flex flex-col gap-2 border-b border-zinc-200 pb-4 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h3 className="text-xl font-semibold text-zinc-900">
-                    {formMode === "create"
-                      ? "Create Category"
-                      : "Edit Category"}
-                  </h3>
-                  <p className="text-sm text-zinc-500">
-                    {formMode === "create"
-                      ? "Create new category for your courses."
-                      : "Update Category details like name, description, parent, order and active status."}
-                  </p>
-                </div>
-
-                {formMode === "edit" && selectedCategoryId && (
-                  <div className="rounded-lg bg-zinc-100 px-3 py-2 text-xs text-zinc-600">
-                    Editing ID:{" "}
-                    <span className="font-medium">{selectedCategoryId}</span>
-                  </div>
-                )}
-              </div>
-
-              <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-                <label className="space-y-2 text-sm xl:col-span-2">
-                  <span className="font-medium text-zinc-700">
-                    Category Name *
-                  </span>
-                  <input
-                    type="text"
-                    maxLength={formMode === "create" ? 100 : 255}
-                    className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
-                    value={formData.name}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        name: e.target.value,
-                      })
-                    }
-                    disabled={loading}
-                    required
-                  />
-                </label>
-
-                <label className="space-y-2 text-sm xl:col-span-2">
-                  <span className="font-medium text-zinc-700">
-                    Parent Category
-                  </span>
-                  <select
-                    className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
-                    value={formData.parentId}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        parentId: e.target.value,
-                      })
-                    }
-                    disabled={loading}
-                  >
-                    <option value="">None Top-level</option>
-
-                    {categories
-                      .filter(
-                        (category) =>
-                          category.id !== selectedCategoryId &&
-                          !category.deletedAt
-                      )
-                      .map((category) => (
-                        <option key={category.id} value={category.id}>
-                          {category.name}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-
-                {formMode === "edit" && (
-                  <>
-                    <label className="space-y-2 text-sm">
-                      <span className="font-medium text-zinc-700">Order</span>
-                      <input
-                        type="number"
-                        className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
-                        value={formData.order}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            order: e.target.value,
-                          })
-                        }
-                        disabled={loading}
-                      />
-                    </label>
-
-                    <label className="space-y-2 text-sm">
-                      <span className="font-medium text-zinc-700">Status</span>
-                      <select
-                        className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
-                        value={formData.isActive}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            isActive: e.target.value,
-                          })
-                        }
-                        disabled={loading}
-                      >
-                        <option value="true">Active</option>
-                        <option value="false">Inactive</option>
-                      </select>
-                    </label>
-                  </>
-                )}
-
-                <label className="space-y-2 text-sm md:col-span-2 xl:col-span-3">
-                  <span className="font-medium text-zinc-700">Description</span>
-                  <textarea
-                    maxLength={formMode === "create" ? 500 : undefined}
-                    className="min-h-[110px] w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
-                    value={formData.description}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        description: e.target.value,
-                      })
-                    }
-                    disabled={loading}
-                  />
-                  {formMode === "create" && (
-                    <p className="text-xs text-zinc-500">
-                      {formData.description.length}/500 characters
-                    </p>
-                  )}
-                </label>
-
-                <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-sm md:col-span-2 xl:col-span-1">
-                  <p className="font-medium text-zinc-800">Category Preview</p>
-
-                  <div className="mt-4 space-y-3">
-                    <div>
-                      <p className="text-xs text-zinc-500">Name</p>
-                      <p className="font-medium text-zinc-800">
-                        {formData.name.trim() || "New category"}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-xs text-zinc-500">Parent</p>
-                      <p className="font-medium text-zinc-800">
-                        {categories.find(
-                          (item) => item.id === formData.parentId
-                        )?.name || "Top-level category"}
-                      </p>
-                    </div>
-
-                    {formMode === "edit" && (
-                      <>
-                        <div>
-                          <p className="text-xs text-zinc-500">Order</p>
-                          <p className="font-medium text-zinc-800">
-                            {formData.order || "0"}
-                          </p>
-                        </div>
-
-                        <div>
-                          <p className="text-xs text-zinc-500">Status</p>
-                          <span
-                            className={`mt-1 inline-flex rounded-full px-3 py-1 text-xs font-medium ${
-                              formData.isActive === "true"
-                                ? "bg-green-100 text-green-700"
-                                : "bg-red-100 text-red-700"
-                            }`}
-                          >
-                            {formData.isActive === "true"
-                              ? "Active"
-                              : "Inactive"}
-                          </span>
-                        </div>
-                      </>
-                    )}
-
-                    <div>
-                      <p className="text-xs text-zinc-500">Description</p>
-                      <p className="line-clamp-3 text-zinc-700">
-                        {formData.description.trim() || "No description"}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400"
-                >
-                  {loading
-                    ? "Saving..."
-                    : formMode === "create"
-                    ? "Create Category"
-                    : "Update Category"}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={resetForm}
-                  disabled={loading}
-                  className="rounded-xl border border-zinc-300 bg-white px-5 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Reset Form
-                </button>
-              </div>
-            </form>
 
             <div className="rounded-2xl border border-zinc-200 bg-white shadow-sm">
               <div className="border-b border-zinc-200 p-6">
@@ -809,8 +617,7 @@ export default function AdminCategoriesPage() {
                       Category Datatable
                     </h3>
                     <p className="text-sm text-zinc-500">
-                      Showing all category information returned from the
-                      category API.
+                      Showing category information returned from the category API.
                     </p>
                   </div>
 
@@ -835,9 +642,7 @@ export default function AdminCategoriesPage() {
 
                   <select
                     className="rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                    value={
-                      filterActive === "all" ? "all" : String(filterActive)
-                    }
+                    value={filterActive === "all" ? "all" : String(filterActive)}
                     onChange={(e) => {
                       const value = e.target.value;
 
@@ -893,10 +698,9 @@ export default function AdminCategoriesPage() {
               </div>
 
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[1550px] border-collapse text-sm">
+                <table className="w-full min-w-[980px] border-collapse text-sm">
                   <thead>
                     <tr className="border-b border-zinc-200 bg-zinc-50 text-zinc-600">
-                      <th className="px-4 py-3 text-left font-semibold">ID</th>
                       <th className="px-4 py-3 text-left font-semibold">
                         Name
                       </th>
@@ -906,32 +710,11 @@ export default function AdminCategoriesPage() {
                       <th className="px-4 py-3 text-left font-semibold">
                         Description
                       </th>
-                      <th className="px-4 py-3 text-left font-semibold">
-                        Parent ID
-                      </th>
-                      <th className="px-4 py-3 text-left font-semibold">
-                        Parent Name
-                      </th>
                       <th className="px-4 py-3 text-center font-semibold">
                         Order
                       </th>
                       <th className="px-4 py-3 text-center font-semibold">
                         Status
-                      </th>
-                      <th className="px-4 py-3 text-center font-semibold">
-                        Courses
-                      </th>
-                      <th className="px-4 py-3 text-center font-semibold">
-                        Children
-                      </th>
-                      <th className="px-4 py-3 text-left font-semibold">
-                        Created At
-                      </th>
-                      <th className="px-4 py-3 text-left font-semibold">
-                        Updated At
-                      </th>
-                      <th className="px-4 py-3 text-left font-semibold">
-                        Deleted At
                       </th>
                       <th className="px-4 py-3 text-center font-semibold">
                         Actions
@@ -943,7 +726,7 @@ export default function AdminCategoriesPage() {
                     {tableLoading ? (
                       <tr>
                         <td
-                          colSpan={14}
+                          colSpan={6}
                           className="px-4 py-8 text-center text-zinc-500"
                         >
                           Loading categories...
@@ -952,7 +735,7 @@ export default function AdminCategoriesPage() {
                     ) : categories.length === 0 ? (
                       <tr>
                         <td
-                          colSpan={14}
+                          colSpan={6}
                           className="px-4 py-8 text-center text-zinc-500"
                         >
                           No categories found
@@ -968,10 +751,6 @@ export default function AdminCategoriesPage() {
                               : ""
                           } ${category.deletedAt ? "opacity-75" : ""}`}
                         >
-                          <td className="max-w-[180px] truncate px-4 py-3 font-mono text-xs text-zinc-500">
-                            {category.id || "-"}
-                          </td>
-
                           <td className="px-4 py-3 font-medium text-zinc-900">
                             <div className="flex items-center gap-2">
                               <span>{category.name || "-"}</span>
@@ -988,16 +767,8 @@ export default function AdminCategoriesPage() {
                             {category.slug || "-"}
                           </td>
 
-                          <td className="max-w-[260px] truncate px-4 py-3 text-zinc-600">
+                          <td className="max-w-[360px] truncate px-4 py-3 text-zinc-600">
                             {category.description || "-"}
-                          </td>
-
-                          <td className="max-w-[180px] truncate px-4 py-3 font-mono text-xs text-zinc-500">
-                            {category.parentId || "-"}
-                          </td>
-
-                          <td className="px-4 py-3 text-zinc-600">
-                            {category.parentName || "-"}
                           </td>
 
                           <td className="px-4 py-3 text-center text-zinc-700">
@@ -1016,31 +787,20 @@ export default function AdminCategoriesPage() {
                             </span>
                           </td>
 
-                          <td className="px-4 py-3 text-center text-zinc-700">
-                            {category.courseCount || 0}
-                          </td>
-
-                          <td className="px-4 py-3 text-center text-zinc-700">
-                            {category.childrenCount || 0}
-                          </td>
-
-                          <td className="px-4 py-3 text-zinc-600">
-                            {formatDateTime(category.createdAt)}
-                          </td>
-
-                          <td className="px-4 py-3 text-zinc-600">
-                            {formatDateTime(category.updatedAt)}
-                          </td>
-
-                          <td className="px-4 py-3 text-zinc-600">
-                            {formatDateTime(category.deletedAt)}
-                          </td>
-
                           <td className="px-4 py-3">
                             <div className="flex justify-center gap-2">
                               <button
                                 type="button"
-                                onClick={() => handleEdit(category)}
+                                onClick={() => openDetailModal(category)}
+                                disabled={loading}
+                                className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                Info
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => openEditModal(category)}
                                 disabled={loading || Boolean(category.deletedAt)}
                                 className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
                               >
@@ -1053,9 +813,7 @@ export default function AdminCategoriesPage() {
                                 disabled={loading || Boolean(category.deletedAt)}
                                 className="rounded-lg border border-yellow-200 bg-yellow-50 px-3 py-1.5 text-xs font-medium text-yellow-700 transition hover:bg-yellow-100 disabled:cursor-not-allowed disabled:opacity-60"
                               >
-                                {category.isActive
-                                  ? "Deactivate"
-                                  : "Activate"}
+                                {category.isActive ? "Deactivate" : "Activate"}
                               </button>
 
                               {!category.deletedAt ? (
@@ -1134,6 +892,415 @@ export default function AdminCategoriesPage() {
             </div>
           </div>
         </div>
+
+        {formModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
+            <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
+              <form onSubmit={handleSubmit}>
+                <div className="sticky top-0 z-10 border-b border-zinc-200 bg-white p-6">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h3 className="text-xl font-semibold text-zinc-900">
+                        {formMode === "create"
+                          ? "Create Category"
+                          : "Edit Category"}
+                      </h3>
+
+                      <p className="mt-1 text-sm text-zinc-500">
+                        {formMode === "create"
+                          ? "Create a new course category."
+                          : "Update category name, description, parent, order and active status."}
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={closeFormModal}
+                      disabled={loading}
+                      className="rounded-full border border-zinc-200 px-3 py-1.5 text-sm text-zinc-600 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-5 p-6">
+                  <div className="grid gap-5 md:grid-cols-2">
+                    <label className="space-y-2 text-sm md:col-span-2">
+                      <span className="font-medium text-zinc-700">
+                        Category Name *
+                      </span>
+
+                      <input
+                        type="text"
+                        maxLength={formMode === "create" ? 100 : 255}
+                        className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
+                        value={formData.name}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            name: e.target.value,
+                          })
+                        }
+                        disabled={loading}
+                        required
+                      />
+                    </label>
+
+                    <label className="space-y-2 text-sm md:col-span-2">
+                      <span className="font-medium text-zinc-700">
+                        Parent Category
+                      </span>
+
+                      <select
+                        className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
+                        value={formData.parentId}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            parentId: e.target.value,
+                          })
+                        }
+                        disabled={loading}
+                      >
+                        <option value="">None Top-level</option>
+
+                        {categories
+                          .filter(
+                            (category) =>
+                              category.id !== selectedCategoryId &&
+                              !category.deletedAt
+                          )
+                          .map((category) => (
+                            <option key={category.id} value={category.id}>
+                              {category.name}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+
+                    {formMode === "edit" && (
+                      <>
+                        <label className="space-y-2 text-sm">
+                          <span className="font-medium text-zinc-700">
+                            Order
+                          </span>
+
+                          <input
+                            type="number"
+                            className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
+                            value={formData.order}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                order: e.target.value,
+                              })
+                            }
+                            disabled={loading}
+                          />
+                        </label>
+
+                        <label className="space-y-2 text-sm">
+                          <span className="font-medium text-zinc-700">
+                            Status
+                          </span>
+
+                          <select
+                            className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
+                            value={formData.isActive}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                isActive: e.target.value,
+                              })
+                            }
+                            disabled={loading}
+                          >
+                            <option value="true">Active</option>
+                            <option value="false">Inactive</option>
+                          </select>
+                        </label>
+                      </>
+                    )}
+
+                    <label className="space-y-2 text-sm md:col-span-2">
+                      <span className="font-medium text-zinc-700">
+                        Description
+                      </span>
+
+                      <textarea
+                        maxLength={formMode === "create" ? 500 : undefined}
+                        className="min-h-[120px] w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-zinc-100"
+                        value={formData.description}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            description: e.target.value,
+                          })
+                        }
+                        disabled={loading}
+                      />
+
+                      {formMode === "create" && (
+                        <p className="text-xs text-zinc-500">
+                          {formData.description.length}/500 characters
+                        </p>
+                      )}
+                    </label>
+                  </div>
+
+                  <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-sm">
+                    <p className="font-medium text-zinc-800">Category Preview</p>
+
+                    <div className="mt-4 grid gap-4 md:grid-cols-2">
+                      <div>
+                        <p className="text-xs text-zinc-500">Name</p>
+                        <p className="font-medium text-zinc-800">
+                          {formData.name.trim() || "New category"}
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-xs text-zinc-500">Parent</p>
+                        <p className="font-medium text-zinc-800">
+                          {categories.find(
+                            (item) => item.id === formData.parentId
+                          )?.name || "Top-level category"}
+                        </p>
+                      </div>
+
+                      {formMode === "edit" && (
+                        <>
+                          <div>
+                            <p className="text-xs text-zinc-500">Order</p>
+                            <p className="font-medium text-zinc-800">
+                              {formData.order || "0"}
+                            </p>
+                          </div>
+
+                          <div>
+                            <p className="text-xs text-zinc-500">Status</p>
+                            <span
+                              className={`mt-1 inline-flex rounded-full px-3 py-1 text-xs font-medium ${
+                                formData.isActive === "true"
+                                  ? "bg-green-100 text-green-700"
+                                  : "bg-red-100 text-red-700"
+                              }`}
+                            >
+                              {formData.isActive === "true"
+                                ? "Active"
+                                : "Inactive"}
+                            </span>
+                          </div>
+                        </>
+                      )}
+
+                      <div className="md:col-span-2">
+                        <p className="text-xs text-zinc-500">Description</p>
+                        <p className="line-clamp-3 text-zinc-700">
+                          {formData.description.trim() || "No description"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="sticky bottom-0 flex flex-col gap-3 border-t border-zinc-200 bg-white p-6 sm:flex-row sm:justify-end">
+                  <button
+                    type="button"
+                    onClick={closeFormModal}
+                    disabled={loading}
+                    className="rounded-xl border border-zinc-300 bg-white px-5 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400"
+                  >
+                    {loading
+                      ? "Saving..."
+                      : formMode === "create"
+                      ? "Create Category"
+                      : "Update Category"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {detailModal.open && detailModal.category && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
+            <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
+              <div className="border-b border-zinc-200 p-6">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-xl font-semibold text-zinc-900">
+                      Category Details
+                    </h3>
+                    <p className="mt-1 text-sm text-zinc-500">
+                      View full category information returned from the API.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={closeDetailModal}
+                    className="rounded-full border border-zinc-200 px-3 py-1.5 text-sm text-zinc-600 transition hover:bg-zinc-100"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-4 p-6">
+                <div className="flex items-center gap-3 rounded-xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-blue-700">
+                    i
+                  </div>
+
+                  <div className="min-w-0">
+                    <p className="font-semibold text-zinc-900">
+                      {detailModal.category.name || "-"}
+                    </p>
+                    <p className="truncate text-sm text-zinc-500">
+                      {detailModal.category.slug || "-"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="rounded-xl border border-zinc-200 p-4">
+                    <p className="text-xs font-medium uppercase text-zinc-500">
+                      ID
+                    </p>
+                    <p className="mt-1 break-all font-mono text-sm text-zinc-800">
+                      {detailModal.category.id || "-"}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-zinc-200 p-4">
+                    <p className="text-xs font-medium uppercase text-zinc-500">
+                      Slug
+                    </p>
+                    <p className="mt-1 break-all text-sm text-zinc-800">
+                      {detailModal.category.slug || "-"}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-zinc-200 p-4">
+                    <p className="text-xs font-medium uppercase text-zinc-500">
+                      Parent ID
+                    </p>
+                    <p className="mt-1 break-all font-mono text-sm text-zinc-800">
+                      {detailModal.category.parentId || "-"}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-zinc-200 p-4">
+                    <p className="text-xs font-medium uppercase text-zinc-500">
+                      Parent Name
+                    </p>
+                    <p className="mt-1 text-sm text-zinc-800">
+                      {detailModal.category.parentName || "-"}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-zinc-200 p-4">
+                    <p className="text-xs font-medium uppercase text-zinc-500">
+                      Order
+                    </p>
+                    <p className="mt-1 text-sm text-zinc-800">
+                      {detailModal.category.order ?? 0}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-zinc-200 p-4">
+                    <p className="text-xs font-medium uppercase text-zinc-500">
+                      Status
+                    </p>
+                    <span
+                      className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-medium ${
+                        detailModal.category.isActive
+                          ? "bg-green-100 text-green-700"
+                          : "bg-red-100 text-red-700"
+                      }`}
+                    >
+                      {detailModal.category.isActive ? "Active" : "Inactive"}
+                    </span>
+                  </div>
+
+                  <div className="rounded-xl border border-zinc-200 p-4">
+                    <p className="text-xs font-medium uppercase text-zinc-500">
+                      Courses
+                    </p>
+                    <p className="mt-1 text-sm text-zinc-800">
+                      {detailModal.category.courseCount ?? "-"}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-zinc-200 p-4">
+                    <p className="text-xs font-medium uppercase text-zinc-500">
+                      Children
+                    </p>
+                    <p className="mt-1 text-sm text-zinc-800">
+                      {detailModal.category.childrenCount ?? "-"}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-zinc-200 p-4">
+                    <p className="text-xs font-medium uppercase text-zinc-500">
+                      Created At
+                    </p>
+                    <p className="mt-1 text-sm text-zinc-800">
+                      {formatDateTime(detailModal.category.createdAt)}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-zinc-200 p-4">
+                    <p className="text-xs font-medium uppercase text-zinc-500">
+                      Updated At
+                    </p>
+                    <p className="mt-1 text-sm text-zinc-800">
+                      {formatDateTime(detailModal.category.updatedAt)}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-zinc-200 p-4 md:col-span-2">
+                    <p className="text-xs font-medium uppercase text-zinc-500">
+                      Deleted At
+                    </p>
+                    <p className="mt-1 text-sm text-zinc-800">
+                      {formatDateTime(detailModal.category.deletedAt)}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-zinc-200 p-4 md:col-span-2">
+                    <p className="text-xs font-medium uppercase text-zinc-500">
+                      Description
+                    </p>
+                    <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-zinc-800">
+                      {detailModal.category.description || "-"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end border-t border-zinc-200 p-6">
+                <button
+                  type="button"
+                  onClick={closeDetailModal}
+                  className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-blue-700"
+                >
+                  OK
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {confirmModal.open && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
