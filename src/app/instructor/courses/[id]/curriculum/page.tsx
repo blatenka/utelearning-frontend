@@ -175,22 +175,33 @@ function getMediaTypeFromFile(file: File): LessonMediaType {
   const name = file.name.toLowerCase();
   const mime = file.type.toLowerCase();
 
-  if (mime.startsWith("image/") || /\.(jpg|jpeg|png|webp|gif|svg)$/.test(name)) {
+  if (
+    mime.startsWith("image/") ||
+    /\.(jpg|jpeg|png|webp|gif|svg)$/.test(name)
+  ) {
     return "IMAGE";
   }
 
-  if (mime.startsWith("video/") || /\.(mp4|mov|webm|mkv|avi)$/.test(name)) {
+  if (
+    mime.startsWith("video/") ||
+    /\.(mp4|mov|webm|mkv|avi)$/.test(name)
+  ) {
     return "VIDEO";
   }
 
-  if (mime.startsWith("audio/") || /\.(mp3|wav|ogg|m4a|aac)$/.test(name)) {
+  if (
+    mime.startsWith("audio/") ||
+    /\.(mp3|wav|ogg|m4a|aac)$/.test(name)
+  ) {
     return "AUDIO";
   }
 
   if (
     mime === "application/pdf" ||
     name.endsWith(".pdf") ||
-    /\.(doc|docx|ppt|pptx|xls|xlsx|odt|ods|odp|txt|csv)$/.test(name) ||
+    /\.(doc|docx|ppt|pptx|xls|xlsx|odt|ods|odp|txt|csv)$/.test(
+      name,
+    ) ||
     mime.includes("officedocument") ||
     mime.includes("msword") ||
     mime.includes("ms-excel") ||
@@ -234,7 +245,7 @@ function inferMediaTypeFromUrl(url: string): LessonMediaType {
 }
 
 function getCloudinaryResourceType(
-  mediaType: LessonMediaType
+  mediaType: LessonMediaType,
 ): "image" | "video" | "raw" {
   if (mediaType === "IMAGE") return "image";
   if (mediaType === "VIDEO" || mediaType === "AUDIO") return "video";
@@ -244,7 +255,10 @@ function getCloudinaryResourceType(
 function getFilenameFromUrl(url: string) {
   try {
     const parsedUrl = new URL(url);
-    const filename = parsedUrl.pathname.split("/").filter(Boolean).pop();
+    const filename = parsedUrl.pathname
+      .split("/")
+      .filter(Boolean)
+      .pop();
 
     if (isYoutubeUrl(url)) {
       return filename || "YouTube video";
@@ -259,7 +273,10 @@ function getFilenameFromUrl(url: string) {
 function isValidUrl(value: string) {
   try {
     const parsedUrl = new URL(value);
-    return parsedUrl.protocol === "http:" || parsedUrl.protocol === "https:";
+    return (
+      parsedUrl.protocol === "http:" ||
+      parsedUrl.protocol === "https:"
+    );
   } catch {
     return false;
   }
@@ -274,7 +291,7 @@ function formatFileSize(size?: number | null) {
 
 async function uploadFileToCloudinary(
   file: File,
-  signature: UploadSignatureResponse
+  signature: UploadSignatureResponse,
 ) {
   const formData = new FormData();
 
@@ -298,7 +315,7 @@ async function uploadFileToCloudinary(
     {
       method: "POST",
       body: formData,
-    }
+    },
   );
 
   if (!response.ok) {
@@ -374,7 +391,10 @@ function SortableSectionCard({
   return (
     <div
       ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+      }}
       className={isDragging ? "opacity-60" : ""}
     >
       <Card className="overflow-hidden border-zinc-300 bg-zinc-50 shadow-sm">
@@ -455,7 +475,9 @@ function MediaLinkForm({
       <div className="grid gap-3 md:grid-cols-[1fr_auto]">
         <Input
           value={form.filename}
-          onChange={(event) => onUpdate({ filename: event.target.value })}
+          onChange={(event) =>
+            onUpdate({ filename: event.target.value })
+          }
           placeholder="Display name (optional)"
           disabled={disabled || saving}
         />
@@ -479,7 +501,9 @@ export default function CourseCurriculumPage() {
   const courseId = String(params.id);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 6 },
+    }),
   );
 
   const [course, setCourse] = useState<InstructorCourse | null>(null);
@@ -492,22 +516,23 @@ export default function CourseCurriculumPage() {
 
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState<UploadingState>(null);
-  const [pendingUpload, setPendingUpload] = useState<PendingUpload>(null);
+  const [pendingUpload, setPendingUpload] =
+    useState<PendingUpload>(null);
 
   const [mediaLinkForms, setMediaLinkForms] = useState<
     Record<string, LessonMediaLinkForm>
   >({});
-  const [savingMediaLinkLessonId, setSavingMediaLinkLessonId] = useState<
-    string | null
-  >(null);
+  const [savingMediaLinkLessonId, setSavingMediaLinkLessonId] =
+    useState<string | null>(null);
 
-  const [editingFile, setEditingFile] = useState<LessonFileEditState>(null);
+  const [editingFile, setEditingFile] =
+    useState<LessonFileEditState>(null);
   const [savingFileEdit, setSavingFileEdit] = useState(false);
-  const [fileToDelete, setFileToDelete] = useState<LessonFileDeleteState>(null);
+  const [fileToDelete, setFileToDelete] =
+    useState<LessonFileDeleteState>(null);
   const [deletingFile, setDeletingFile] = useState(false);
-  const [refreshingLessonFilesId, setRefreshingLessonFilesId] = useState<
-    string | null
-  >(null);
+  const [refreshingLessonFilesId, setRefreshingLessonFilesId] =
+    useState<string | null>(null);
 
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
@@ -521,25 +546,30 @@ export default function CourseCurriculumPage() {
     Record<string, boolean>
   >({});
 
-  const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
-  const [editSectionTitle, setEditSectionTitle] = useState("");
-  const [editSectionDescription, setEditSectionDescription] = useState("");
-
-  const [lessonFormSectionId, setLessonFormSectionId] = useState<string | null>(
-    null
-  );
-  const [lessonDraftForm, setLessonDraftForm] = useState<LessonDraftForm>(
-    getDefaultLessonDraftForm()
-  );
-  const [creatingLessonSectionId, setCreatingLessonSectionId] = useState<
+  const [editingSectionId, setEditingSectionId] = useState<
     string | null
   >(null);
+  const [editSectionTitle, setEditSectionTitle] = useState("");
+  const [editSectionDescription, setEditSectionDescription] =
+    useState("");
 
-  const [editingLessonId, setEditingLessonId] = useState<string | null>(null);
+  const [lessonFormSectionId, setLessonFormSectionId] = useState<
+    string | null
+  >(null);
+  const [lessonDraftForm, setLessonDraftForm] =
+    useState<LessonDraftForm>(getDefaultLessonDraftForm());
+  const [creatingLessonSectionId, setCreatingLessonSectionId] =
+    useState<string | null>(null);
+
+  const [editingLessonId, setEditingLessonId] = useState<
+    string | null
+  >(null);
   const [editLessonTitle, setEditLessonTitle] = useState("");
-  const [editLessonDescription, setEditLessonDescription] = useState("");
+  const [editLessonDescription, setEditLessonDescription] =
+    useState("");
 
-  const [sectionToDelete, setSectionToDelete] = useState<Section | null>(null);
+  const [sectionToDelete, setSectionToDelete] =
+    useState<Section | null>(null);
 
   const [lessonToDelete, setLessonToDelete] = useState<{
     sectionId: string;
@@ -550,13 +580,15 @@ export default function CourseCurriculumPage() {
     const totalSections = sections.length;
     const totalLessons = sections.reduce(
       (sum, section) => sum + (section.lessons?.length ?? 0),
-      0
+      0,
     );
-    const activeSections = sections.filter((section) => section.isActive).length;
+    const activeSections = sections.filter(
+      (section) => section.isActive,
+    ).length;
     const inactiveSections = totalSections - activeSections;
     const totalMedia = Object.values(uploadedFiles).reduce(
       (sum, files) => sum + files.length,
-      0
+      0,
     );
 
     return {
@@ -600,7 +632,7 @@ export default function CourseCurriculumPage() {
 
   function updateMediaLinkForm(
     lessonId: string,
-    patch: Partial<LessonMediaLinkForm>
+    patch: Partial<LessonMediaLinkForm>,
   ) {
     setMediaLinkForms((prev) => ({
       ...prev,
@@ -679,7 +711,9 @@ export default function CourseCurriculumPage() {
       });
 
       const courseList = unwrapList<InstructorCourse>(response);
-      setCourse(courseList.find((item) => item.id === courseId) ?? null);
+      setCourse(
+        courseList.find((item) => item.id === courseId) ?? null,
+      );
     } catch {
       setCourse(null);
     } finally {
@@ -687,7 +721,10 @@ export default function CourseCurriculumPage() {
     }
   }
 
-  async function fetchLessonFiles(sectionId: string, lessonId: string) {
+  async function fetchLessonFiles(
+    sectionId: string,
+    lessonId: string,
+  ) {
     const response = await instructorCourseService.getLessonFiles(
       courseId,
       sectionId,
@@ -697,13 +734,16 @@ export default function CourseCurriculumPage() {
         limit: 100,
         sortField: "createdAt",
         sortDirection: "desc",
-      }
+      },
     );
 
     return unwrapList<LessonFileMedia>(response);
   }
 
-  async function refreshLessonFiles(sectionId: string, lessonId: string) {
+  async function refreshLessonFiles(
+    sectionId: string,
+    lessonId: string,
+  ) {
     try {
       setRefreshingLessonFilesId(lessonId);
 
@@ -714,7 +754,9 @@ export default function CourseCurriculumPage() {
         [lessonId]: files,
       }));
     } catch (err) {
-      showError(getErrorMessage(err, "Failed to load lesson media files."));
+      showError(
+        getErrorMessage(err, "Failed to load lesson media files."),
+      );
     } finally {
       setRefreshingLessonFilesId(null);
     }
@@ -725,14 +767,12 @@ export default function CourseCurriculumPage() {
       if (!silent) setLoading(true);
       setError("");
 
-      const sectionResponse = await instructorCourseService.getSections(
-        courseId,
-        {
+      const sectionResponse =
+        await instructorCourseService.getSections(courseId, {
           sortField: "sectionIndex",
           sortDirection: "asc",
           limit: 100,
-        }
-      );
+        });
 
       const sectionList = unwrapList<Section>(sectionResponse);
       const nextUploadedFiles: Record<string, LessonFileMedia[]> = {};
@@ -740,29 +780,28 @@ export default function CourseCurriculumPage() {
       const sectionsWithLessons = await Promise.all(
         sectionList.map(async (section) => {
           try {
-            const lessonResponse = await instructorCourseService.getLessons(
-              courseId,
-              section.id,
-              {
-                sortField: "lessonIndex",
-                sortDirection: "asc",
-                limit: 100,
-              }
-            );
+            const lessonResponse =
+              await instructorCourseService.getLessons(
+                courseId,
+                section.id,
+                {
+                  sortField: "lessonIndex",
+                  sortDirection: "asc",
+                  limit: 100,
+                },
+              );
 
             const lessons = unwrapList<Lesson>(lessonResponse);
 
             await Promise.all(
               lessons.map(async (lesson) => {
                 try {
-                  nextUploadedFiles[lesson.id] = await fetchLessonFiles(
-                    section.id,
-                    lesson.id
-                  );
+                  nextUploadedFiles[lesson.id] =
+                    await fetchLessonFiles(section.id, lesson.id);
                 } catch {
                   nextUploadedFiles[lesson.id] = [];
                 }
-              })
+              }),
             );
 
             return {
@@ -775,7 +814,7 @@ export default function CourseCurriculumPage() {
               lessons: section.lessons ?? [],
             };
           }
-        })
+        }),
       );
 
       setSections(sectionsWithLessons);
@@ -787,7 +826,9 @@ export default function CourseCurriculumPage() {
     }
   }
 
-  async function handleCreateSection(event: FormEvent<HTMLFormElement>) {
+  async function handleCreateSection(
+    event: FormEvent<HTMLFormElement>,
+  ) {
     event.preventDefault();
 
     if (!ensureCourseEditable()) return;
@@ -835,10 +876,14 @@ export default function CourseCurriculumPage() {
       setError("");
       setSuccessMessage("");
 
-      await instructorCourseService.updateSection(courseId, sectionId, {
-        title: editSectionTitle,
-        description: editSectionDescription || null,
-      });
+      await instructorCourseService.updateSection(
+        courseId,
+        sectionId,
+        {
+          title: editSectionTitle,
+          description: editSectionDescription || null,
+        },
+      );
 
       setEditingSectionId(null);
       showSuccess("Section updated successfully.");
@@ -862,7 +907,10 @@ export default function CourseCurriculumPage() {
       setError("");
       setSuccessMessage("");
 
-      await instructorCourseService.deleteSection(courseId, sectionToDelete.id);
+      await instructorCourseService.deleteSection(
+        courseId,
+        sectionToDelete.id,
+      );
 
       setSectionToDelete(null);
       showSuccess("Section deleted successfully.");
@@ -882,13 +930,13 @@ export default function CourseCurriculumPage() {
       await instructorCourseService.changeSectionStatus(
         courseId,
         section.id,
-        !section.isActive
+        !section.isActive,
       );
 
       showSuccess(
         section.isActive
           ? "Section disabled successfully."
-          : "Section enabled successfully."
+          : "Section enabled successfully.",
       );
       await fetchSectionsAndLessons(true);
     } catch (err) {
@@ -900,7 +948,7 @@ export default function CourseCurriculumPage() {
     sectionId: string,
     lesson: Lesson,
     file: File,
-    mediaType: LessonMediaType
+    mediaType: LessonMediaType,
   ) {
     setUploading({
       lessonId: lesson.id,
@@ -909,40 +957,46 @@ export default function CourseCurriculumPage() {
 
     const resourceType = getCloudinaryResourceType(mediaType);
 
-    const signatureResponse = await instructorCourseService.getUploadSignature({
-      entityType: "lesson",
-      entityId: lesson.id,
-      resourceType,
-      subFolder: "files",
-    });
+    const signatureResponse =
+      await instructorCourseService.getUploadSignature({
+        entityType: "lesson",
+        entityId: lesson.id,
+        resourceType,
+        subFolder: "files",
+      });
 
-    const signature = unwrapData<UploadSignatureResponse>(signatureResponse);
+    const signature =
+      unwrapData<UploadSignatureResponse>(signatureResponse);
 
     setUploading({
       lessonId: lesson.id,
       progressText: "Uploading to Cloudinary...",
     });
 
-    const cloudinaryResult = await uploadFileToCloudinary(file, signature);
+    const cloudinaryResult = await uploadFileToCloudinary(
+      file,
+      signature,
+    );
 
     setUploading({
       lessonId: lesson.id,
       progressText: "Saving media information...",
     });
 
-    const mediaResponse = await instructorCourseService.createLessonFile(
-      courseId,
-      sectionId,
-      lesson.id,
-      {
-        cloudinaryPublicId: cloudinaryResult.public_id ?? null,
-        url: cloudinaryResult.secure_url,
-        type: mediaType as MediaType,
-        filename: file.name,
-        mimeType: file.type || null,
-        sizeInBytes: file.size,
-      }
-    );
+    const mediaResponse =
+      await instructorCourseService.createLessonFile(
+        courseId,
+        sectionId,
+        lesson.id,
+        {
+          cloudinaryPublicId: cloudinaryResult.public_id ?? null,
+          url: cloudinaryResult.secure_url,
+          type: mediaType as MediaType,
+          filename: file.name,
+          mimeType: file.type || null,
+          sizeInBytes: file.size,
+        },
+      );
 
     return unwrapData<LessonFileMedia>(mediaResponse);
   }
@@ -951,29 +1005,32 @@ export default function CourseCurriculumPage() {
     sectionId: string,
     lesson: Lesson,
     url: string,
-    filename?: string
+    filename?: string,
   ) {
     const type = inferMediaTypeFromUrl(url);
     const finalFilename = filename?.trim() || getFilenameFromUrl(url);
 
-    const mediaResponse = await instructorCourseService.createLessonFile(
-      courseId,
-      sectionId,
-      lesson.id,
-      {
-        cloudinaryPublicId: null,
-        url,
-        type: type as MediaType,
-        filename: finalFilename,
-        mimeType: null,
-        sizeInBytes: null,
-      }
-    );
+    const mediaResponse =
+      await instructorCourseService.createLessonFile(
+        courseId,
+        sectionId,
+        lesson.id,
+        {
+          cloudinaryPublicId: null,
+          url,
+          type: type as MediaType,
+          filename: finalFilename,
+          mimeType: null,
+          sizeInBytes: null,
+        },
+      );
 
     return unwrapData<LessonFileMedia>(mediaResponse);
   }
 
-  async function handleCreateLesson(event: FormEvent<HTMLFormElement>) {
+  async function handleCreateLesson(
+    event: FormEvent<HTMLFormElement>,
+  ) {
     event.preventDefault();
     if (!lessonFormSectionId) return;
     if (!ensureCourseEditable()) return;
@@ -998,14 +1055,15 @@ export default function CourseCurriculumPage() {
       setError("");
       setSuccessMessage("");
 
-      const lessonResponse = await instructorCourseService.createLesson(
-        courseId,
-        lessonFormSectionId,
-        {
-          title,
-          description: description || null,
-        }
-      );
+      const lessonResponse =
+        await instructorCourseService.createLesson(
+          courseId,
+          lessonFormSectionId,
+          {
+            title,
+            description: description || null,
+          },
+        );
 
       const createdLesson = unwrapData<Lesson>(lessonResponse);
 
@@ -1016,7 +1074,7 @@ export default function CourseCurriculumPage() {
           lessonFormSectionId,
           createdLesson,
           lessonDraftForm.file,
-          lessonDraftForm.fileMediaType
+          lessonDraftForm.fileMediaType,
         );
 
         savedMedia.push(fileMedia);
@@ -1027,7 +1085,7 @@ export default function CourseCurriculumPage() {
           lessonFormSectionId,
           createdLesson,
           mediaUrl,
-          mediaFilename
+          mediaFilename,
         );
 
         savedMedia.push(linkMedia);
@@ -1044,7 +1102,7 @@ export default function CourseCurriculumPage() {
       showSuccess(
         savedMedia.length
           ? "Lesson created and media attached successfully."
-          : "Lesson created successfully."
+          : "Lesson created successfully.",
       );
       await fetchSectionsAndLessons(true);
     } catch (err) {
@@ -1083,17 +1141,25 @@ export default function CourseCurriculumPage() {
     setEditLessonDescription(lesson.description ?? "");
   }
 
-  async function handleUpdateLesson(sectionId: string, lessonId: string) {
+  async function handleUpdateLesson(
+    sectionId: string,
+    lessonId: string,
+  ) {
     if (!ensureCourseEditable()) return;
 
     try {
       setError("");
       setSuccessMessage("");
 
-      await instructorCourseService.updateLesson(courseId, sectionId, lessonId, {
-        title: editLessonTitle,
-        description: editLessonDescription || null,
-      });
+      await instructorCourseService.updateLesson(
+        courseId,
+        sectionId,
+        lessonId,
+        {
+          title: editLessonTitle,
+          description: editLessonDescription || null,
+        },
+      );
 
       setEditingLessonId(null);
       showSuccess("Lesson updated successfully.");
@@ -1123,7 +1189,7 @@ export default function CourseCurriculumPage() {
       await instructorCourseService.deleteLesson(
         courseId,
         lessonToDelete.sectionId,
-        lessonToDelete.lesson.id
+        lessonToDelete.lesson.id,
       );
 
       setLessonToDelete(null);
@@ -1134,21 +1200,29 @@ export default function CourseCurriculumPage() {
     }
   }
 
-  async function handleToggleLesson(sectionId: string, lesson: Lesson) {
+  async function handleToggleLesson(
+    sectionId: string,
+    lesson: Lesson,
+  ) {
     if (!ensureCourseEditable()) return;
 
     try {
       setError("");
       setSuccessMessage("");
 
-      await instructorCourseService.updateLesson(courseId, sectionId, lesson.id, {
-        isActive: !lesson.isActive,
-      });
+      await instructorCourseService.updateLesson(
+        courseId,
+        sectionId,
+        lesson.id,
+        {
+          isActive: !lesson.isActive,
+        },
+      );
 
       showSuccess(
         lesson.isActive
           ? "Lesson disabled successfully."
-          : "Lesson enabled successfully."
+          : "Lesson enabled successfully.",
       );
       await fetchSectionsAndLessons(true);
     } catch (err) {
@@ -1163,8 +1237,12 @@ export default function CourseCurriculumPage() {
 
     if (!over || active.id === over.id) return;
 
-    const oldIndex = sections.findIndex((section) => section.id === active.id);
-    const newIndex = sections.findIndex((section) => section.id === over.id);
+    const oldIndex = sections.findIndex(
+      (section) => section.id === active.id,
+    );
+    const newIndex = sections.findIndex(
+      (section) => section.id === over.id,
+    );
 
     if (oldIndex === -1 || newIndex === -1) return;
 
@@ -1174,7 +1252,7 @@ export default function CourseCurriculumPage() {
     try {
       await instructorCourseService.reorderSections(
         courseId,
-        reordered.map((section) => section.id)
+        reordered.map((section) => section.id),
       );
 
       showSuccess("Sections reordered successfully.");
@@ -1188,7 +1266,7 @@ export default function CourseCurriculumPage() {
   async function moveLesson(
     sectionId: string,
     lessonId: string,
-    direction: "up" | "down"
+    direction: "up" | "down",
   ) {
     if (!ensureCourseEditable()) return;
 
@@ -1196,13 +1274,14 @@ export default function CourseCurriculumPage() {
     if (!section?.lessons) return;
 
     const currentIndex = section.lessons.findIndex(
-      (lesson) => lesson.id === lessonId
+      (lesson) => lesson.id === lessonId,
     );
 
     const targetIndex =
       direction === "up" ? currentIndex - 1 : currentIndex + 1;
 
-    if (targetIndex < 0 || targetIndex >= section.lessons.length) return;
+    if (targetIndex < 0 || targetIndex >= section.lessons.length)
+      return;
 
     const copied = [...section.lessons];
 
@@ -1213,15 +1292,15 @@ export default function CourseCurriculumPage() {
 
     setSections((prev) =>
       prev.map((item) =>
-        item.id === sectionId ? { ...item, lessons: copied } : item
-      )
+        item.id === sectionId ? { ...item, lessons: copied } : item,
+      ),
     );
 
     try {
       await instructorCourseService.reorderLessons(
         courseId,
         sectionId,
-        copied.map((lesson) => lesson.id)
+        copied.map((lesson) => lesson.id),
       );
 
       showSuccess("Lessons reordered successfully.");
@@ -1232,7 +1311,10 @@ export default function CourseCurriculumPage() {
     }
   }
 
-  async function handleAttachLessonMediaUrl(sectionId: string, lesson: Lesson) {
+  async function handleAttachLessonMediaUrl(
+    sectionId: string,
+    lesson: Lesson,
+  ) {
     if (!ensureCourseEditable()) return;
 
     const form = getMediaLinkForm(lesson.id);
@@ -1257,7 +1339,7 @@ export default function CourseCurriculumPage() {
         sectionId,
         lesson,
         url,
-        form.filename
+        form.filename,
       );
 
       setUploadedFiles((prev) => ({
@@ -1272,13 +1354,19 @@ export default function CourseCurriculumPage() {
 
       showSuccess("Lesson media link added successfully.");
     } catch (err) {
-      showError(getErrorMessage(err, "Failed to add lesson media link."));
+      showError(
+        getErrorMessage(err, "Failed to add lesson media link."),
+      );
     } finally {
       setSavingMediaLinkLessonId(null);
     }
   }
 
-  function handleSelectLessonFile(sectionId: string, lesson: Lesson, file: File) {
+  function handleSelectLessonFile(
+    sectionId: string,
+    lesson: Lesson,
+    file: File,
+  ) {
     if (!ensureCourseEditable()) return;
 
     const mediaType = getMediaTypeFromFile(file);
@@ -1325,7 +1413,7 @@ export default function CourseCurriculumPage() {
         sectionId,
         lesson,
         file,
-        mediaType
+        mediaType,
       );
 
       setUploadedFiles((prev) => ({
@@ -1340,7 +1428,9 @@ export default function CourseCurriculumPage() {
       setPendingUpload(null);
       showSuccess("Lesson media uploaded successfully.");
     } catch (err) {
-      showError(getErrorMessage(err, "Failed to upload lesson media."));
+      showError(
+        getErrorMessage(err, "Failed to upload lesson media."),
+      );
     } finally {
       setUploading(null);
     }
@@ -1349,7 +1439,7 @@ export default function CourseCurriculumPage() {
   function startEditFile(
     sectionId: string,
     lessonId: string,
-    file: LessonFileMedia
+    file: LessonFileMedia,
   ) {
     if (!ensureCourseEditable()) return;
 
@@ -1372,7 +1462,7 @@ export default function CourseCurriculumPage() {
   }
 
   function updateEditingFileForm(
-    patch: Partial<NonNullable<LessonFileEditState>["form"]>
+    patch: Partial<NonNullable<LessonFileEditState>["form"]>,
   ) {
     setEditingFile((prev) =>
       prev
@@ -1383,7 +1473,7 @@ export default function CourseCurriculumPage() {
               ...patch,
             },
           }
-        : prev
+        : prev,
     );
   }
 
@@ -1424,22 +1514,26 @@ export default function CourseCurriculumPage() {
         editingFile.sectionId,
         editingFile.lessonId,
         editingFile.file.id,
-        payload
+        payload,
       );
 
       const updatedFile = unwrapData<LessonFileMedia>(response);
 
       setUploadedFiles((prev) => ({
         ...prev,
-        [editingFile.lessonId]: (prev[editingFile.lessonId] ?? []).map((file) =>
-          file.id === updatedFile.id ? updatedFile : file
+        [editingFile.lessonId]: (
+          prev[editingFile.lessonId] ?? []
+        ).map((file) =>
+          file.id === updatedFile.id ? updatedFile : file,
         ),
       }));
 
       setEditingFile(null);
       showSuccess("Lesson media updated successfully.");
     } catch (err) {
-      showError(getErrorMessage(err, "Failed to update lesson media."));
+      showError(
+        getErrorMessage(err, "Failed to update lesson media."),
+      );
     } finally {
       setSavingFileEdit(false);
     }
@@ -1458,20 +1552,22 @@ export default function CourseCurriculumPage() {
         courseId,
         fileToDelete.sectionId,
         fileToDelete.lessonId,
-        fileToDelete.file.id
+        fileToDelete.file.id,
       );
 
       setUploadedFiles((prev) => ({
         ...prev,
-        [fileToDelete.lessonId]: (prev[fileToDelete.lessonId] ?? []).filter(
-          (file) => file.id !== fileToDelete.file.id
-        ),
+        [fileToDelete.lessonId]: (
+          prev[fileToDelete.lessonId] ?? []
+        ).filter((file) => file.id !== fileToDelete.file.id),
       }));
 
       setFileToDelete(null);
       showSuccess("Lesson media deleted successfully.");
     } catch (err) {
-      showError(getErrorMessage(err, "Failed to delete lesson media."));
+      showError(
+        getErrorMessage(err, "Failed to delete lesson media."),
+      );
     } finally {
       setDeletingFile(false);
     }
@@ -1519,7 +1615,9 @@ export default function CourseCurriculumPage() {
               <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <CardTitle className="text-2xl">{course.title}</CardTitle>
+                    <CardTitle className="text-2xl">
+                      {course.title}
+                    </CardTitle>
 
                     {course.status && (
                       <Badge variant="outline">{course.status}</Badge>
@@ -1542,7 +1640,9 @@ export default function CourseCurriculumPage() {
                     type="button"
                     variant="outline"
                     onClick={() =>
-                      router.push(`/instructor/courses/${courseId}/edit`)
+                      router.push(
+                        `/instructor/courses/${courseId}/edit`,
+                      )
                     }
                   >
                     Edit Course Info
@@ -1552,7 +1652,9 @@ export default function CourseCurriculumPage() {
                     type="button"
                     variant="outline"
                     onClick={() =>
-                      router.push(`/instructor/courses/${courseId}/assessments`)
+                      router.push(
+                        `/instructor/courses/${courseId}/assessments`,
+                      )
                     }
                   >
                     Assessments
@@ -1571,7 +1673,8 @@ export default function CourseCurriculumPage() {
               <>
                 <CardTitle>Course not found</CardTitle>
                 <CardDescription>
-                  This course could not be found in your instructor course list.
+                  This course could not be found in your instructor
+                  course list.
                 </CardDescription>
               </>
             )}
@@ -1581,7 +1684,9 @@ export default function CourseCurriculumPage() {
             <CardContent>
               <div className="grid gap-3 text-sm text-muted-foreground md:grid-cols-4">
                 <div>
-                  <p className="font-medium text-foreground">Language</p>
+                  <p className="font-medium text-foreground">
+                    Language
+                  </p>
                   <p>{course.language || "Not set"}</p>
                 </div>
 
@@ -1595,12 +1700,20 @@ export default function CourseCurriculumPage() {
                 </div>
 
                 <div>
-                  <p className="font-medium text-foreground">Certificate</p>
-                  <p>{course.certificateEnabled ? "Enabled" : "Disabled"}</p>
+                  <p className="font-medium text-foreground">
+                    Certificate
+                  </p>
+                  <p>
+                    {course.certificateEnabled
+                      ? "Enabled"
+                      : "Disabled"}
+                  </p>
                 </div>
 
                 <div>
-                  <p className="font-medium text-foreground">Course ID</p>
+                  <p className="font-medium text-foreground">
+                    Course ID
+                  </p>
                   <p className="truncate">{course.id}</p>
                 </div>
               </div>
@@ -1611,8 +1724,8 @@ export default function CourseCurriculumPage() {
 
       {course && !canEditCourse && (
         <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          {lockedMessage} You can view the curriculum, but editing, uploading,
-          deleting, and reordering are disabled.
+          {lockedMessage} You can view the curriculum, but editing,
+          uploading, deleting, and reordering are disabled.
         </div>
       )}
 
@@ -1628,7 +1741,8 @@ export default function CourseCurriculumPage() {
             <div>
               <CardTitle>Curriculum Summary</CardTitle>
               <CardDescription>
-                Overview of sections, lessons and attached learning resources.
+                Overview of sections, lessons and attached learning
+                resources.
               </CardDescription>
             </div>
 
@@ -1669,14 +1783,18 @@ export default function CourseCurriculumPage() {
         <CardContent>
           <div className="grid gap-3 md:grid-cols-5">
             <div className="rounded-xl border bg-zinc-50 p-4">
-              <p className="text-xs uppercase text-zinc-500">Sections</p>
+              <p className="text-xs uppercase text-zinc-500">
+                Sections
+              </p>
               <p className="mt-1 text-2xl font-semibold">
                 {curriculumSummary.totalSections}
               </p>
             </div>
 
             <div className="rounded-xl border bg-zinc-50 p-4">
-              <p className="text-xs uppercase text-zinc-500">Lessons</p>
+              <p className="text-xs uppercase text-zinc-500">
+                Lessons
+              </p>
               <p className="mt-1 text-2xl font-semibold">
                 {curriculumSummary.totalLessons}
               </p>
@@ -1690,14 +1808,18 @@ export default function CourseCurriculumPage() {
             </div>
 
             <div className="rounded-xl border bg-zinc-50 p-4">
-              <p className="text-xs uppercase text-zinc-500">Active</p>
+              <p className="text-xs uppercase text-zinc-500">
+                Active
+              </p>
               <p className="mt-1 text-2xl font-semibold">
                 {curriculumSummary.activeSections}
               </p>
             </div>
 
             <div className="rounded-xl border bg-zinc-50 p-4">
-              <p className="text-xs uppercase text-zinc-500">Inactive</p>
+              <p className="text-xs uppercase text-zinc-500">
+                Inactive
+              </p>
               <p className="mt-1 text-2xl font-semibold">
                 {curriculumSummary.inactiveSections}
               </p>
@@ -1729,11 +1851,14 @@ export default function CourseCurriculumPage() {
           >
             <div className="space-y-5">
               {sections.map((section, sectionIndex) => {
-                const isCollapsed = Boolean(collapsedSections[section.id]);
+                const isCollapsed = Boolean(
+                  collapsedSections[section.id],
+                );
                 const lessonCount = section.lessons?.length ?? 0;
                 const mediaCount = (section.lessons ?? []).reduce(
-                  (sum, lesson) => sum + (uploadedFiles[lesson.id]?.length ?? 0),
-                  0
+                  (sum, lesson) =>
+                    sum + (uploadedFiles[lesson.id]?.length ?? 0),
+                  0,
                 );
 
                 return (
@@ -1751,21 +1876,24 @@ export default function CourseCurriculumPage() {
                               setEditSectionTitle(event.target.value)
                             }
                             disabled={!canEditCourse}
-                            maxLength={255}
+                            maxLength={190}
                           />
 
                           <div>
                             <Textarea
                               value={editSectionDescription}
                               onChange={(event) =>
-                                setEditSectionDescription(event.target.value)
+                                setEditSectionDescription(
+                                  event.target.value,
+                                )
                               }
                               disabled={!canEditCourse}
-                              maxLength={255}
+                              maxLength={190}
                             />
 
                             <p className="mt-1 text-xs text-muted-foreground">
-                              {editSectionDescription.length}/255 characters
+                              {editSectionDescription.length}/190
+                              characters
                             </p>
                           </div>
 
@@ -1773,7 +1901,9 @@ export default function CourseCurriculumPage() {
                             <Button
                               size="sm"
                               type="button"
-                              onClick={() => handleUpdateSection(section.id)}
+                              onClick={() =>
+                                handleUpdateSection(section.id)
+                              }
                               disabled={!canEditCourse}
                             >
                               <Save className="mr-2 h-4 w-4" />
@@ -1784,7 +1914,9 @@ export default function CourseCurriculumPage() {
                               size="sm"
                               type="button"
                               variant="outline"
-                              onClick={() => setEditingSectionId(null)}
+                              onClick={() =>
+                                setEditingSectionId(null)
+                              }
                             >
                               <X className="mr-2 h-4 w-4" />
                               Cancel
@@ -1810,22 +1942,29 @@ export default function CourseCurriculumPage() {
                               </button>
 
                               <CardTitle>
-                                Section {sectionIndex + 1}: {section.title}
+                                Section {sectionIndex + 1}:{" "}
+                                {section.title}
                               </CardTitle>
 
                               <Badge
                                 variant={
-                                  section.isActive ? "default" : "secondary"
+                                  section.isActive
+                                    ? "default"
+                                    : "secondary"
                                 }
                               >
-                                {section.isActive ? "Active" : "Inactive"}
+                                {section.isActive
+                                  ? "Active"
+                                  : "Inactive"}
                               </Badge>
 
                               <Badge variant="outline">
                                 {lessonCount} lessons
                               </Badge>
 
-                              <Badge variant="outline">{mediaCount} media</Badge>
+                              <Badge variant="outline">
+                                {mediaCount} media
+                              </Badge>
                             </div>
 
                             {section.description && (
@@ -1840,17 +1979,23 @@ export default function CourseCurriculumPage() {
                               size="sm"
                               type="button"
                               variant="outline"
-                              onClick={() => handleToggleSection(section)}
+                              onClick={() =>
+                                handleToggleSection(section)
+                              }
                               disabled={!canEditCourse}
                             >
-                              {section.isActive ? "Disable" : "Enable"}
+                              {section.isActive
+                                ? "Disable"
+                                : "Enable"}
                             </Button>
 
                             <Button
                               size="sm"
                               type="button"
                               variant="outline"
-                              onClick={() => startEditSection(section)}
+                              onClick={() =>
+                                startEditSection(section)
+                              }
                               disabled={!canEditCourse}
                             >
                               <Edit className="mr-2 h-4 w-4" />
@@ -1861,7 +2006,9 @@ export default function CourseCurriculumPage() {
                               size="sm"
                               type="button"
                               variant="outline"
-                              onClick={() => openLessonForm(section.id)}
+                              onClick={() =>
+                                openLessonForm(section.id)
+                              }
                               disabled={!canEditCourse}
                             >
                               <PlusCircle className="mr-2 h-4 w-4" />
@@ -1872,7 +2019,9 @@ export default function CourseCurriculumPage() {
                               size="sm"
                               type="button"
                               variant="destructive"
-                              onClick={() => handleDeleteSection(section)}
+                              onClick={() =>
+                                handleDeleteSection(section)
+                              }
                               disabled={!canEditCourse}
                             >
                               <Trash2 className="mr-2 h-4 w-4" />
@@ -1895,8 +2044,9 @@ export default function CourseCurriculumPage() {
                                 Add lesson to this section
                               </p>
                               <p className="mt-1 text-sm text-zinc-500">
-                                Fill lesson information and optionally attach a
-                                learning resource immediately.
+                                Fill lesson information and optionally
+                                attach a learning resource
+                                immediately.
                               </p>
                             </div>
 
@@ -1910,7 +2060,7 @@ export default function CourseCurriculumPage() {
                               placeholder="Lesson title"
                               required
                               minLength={3}
-                              maxLength={255}
+                              maxLength={190}
                               disabled={
                                 !canEditCourse ||
                                 creatingLessonSectionId === section.id
@@ -1938,25 +2088,29 @@ export default function CourseCurriculumPage() {
                                   Upload file
                                 </p>
                                 <p className="mt-1 text-xs text-zinc-500">
-                                  Image, video, audio, PDF or document.
+                                  Image, video, audio, PDF or
+                                  document.
                                 </p>
 
                                 <label className="mt-3 inline-flex cursor-pointer items-center justify-center rounded-md border bg-white px-3 py-2 text-sm font-medium hover:bg-zinc-50">
                                   <FileUp className="mr-2 h-4 w-4" />
                                   Choose File
-
                                   <input
                                     type="file"
                                     className="hidden"
                                     disabled={
                                       !canEditCourse ||
-                                      creatingLessonSectionId === section.id
+                                      creatingLessonSectionId ===
+                                        section.id
                                     }
                                     onChange={(event) => {
-                                      const file = event.target.files?.[0];
+                                      const file =
+                                        event.target.files?.[0];
 
                                       if (file) {
-                                        handleSelectNewLessonFile(file);
+                                        handleSelectNewLessonFile(
+                                          file,
+                                        );
                                       }
 
                                       event.target.value = "";
@@ -1973,14 +2127,16 @@ export default function CourseCurriculumPage() {
                                         </p>
                                         <p className="mt-1 text-xs text-zinc-500">
                                           {formatFileSize(
-                                            lessonDraftForm.file.size
+                                            lessonDraftForm.file.size,
                                           )}
                                         </p>
                                       </div>
 
                                       {lessonDraftForm.fileMediaType && (
                                         <MediaTypeBadge
-                                          type={lessonDraftForm.fileMediaType}
+                                          type={
+                                            lessonDraftForm.fileMediaType
+                                          }
                                         />
                                       )}
                                     </div>
@@ -1991,9 +2147,11 @@ export default function CourseCurriculumPage() {
                                       variant="outline"
                                       className="mt-3"
                                       onClick={() => {
-                                        if (lessonDraftForm.filePreviewUrl) {
+                                        if (
+                                          lessonDraftForm.filePreviewUrl
+                                        ) {
                                           URL.revokeObjectURL(
-                                            lessonDraftForm.filePreviewUrl
+                                            lessonDraftForm.filePreviewUrl,
                                           );
                                         }
 
@@ -2015,8 +2173,8 @@ export default function CourseCurriculumPage() {
                                   Attach by URL
                                 </p>
                                 <p className="mt-1 text-xs text-zinc-500">
-                                  YouTube, video, image, audio, PDF or document
-                                  link.
+                                  YouTube, video, image, audio, PDF or
+                                  document link.
                                 </p>
 
                                 <div className="mt-3 space-y-3">
@@ -2030,21 +2188,26 @@ export default function CourseCurriculumPage() {
                                     placeholder="https://..."
                                     disabled={
                                       !canEditCourse ||
-                                      creatingLessonSectionId === section.id
+                                      creatingLessonSectionId ===
+                                        section.id
                                     }
                                   />
 
                                   <Input
-                                    value={lessonDraftForm.mediaFilename}
+                                    value={
+                                      lessonDraftForm.mediaFilename
+                                    }
                                     onChange={(event) =>
                                       updateLessonDraftForm({
-                                        mediaFilename: event.target.value,
+                                        mediaFilename:
+                                          event.target.value,
                                       })
                                     }
                                     placeholder="Display name (optional)"
                                     disabled={
                                       !canEditCourse ||
-                                      creatingLessonSectionId === section.id
+                                      creatingLessonSectionId ===
+                                        section.id
                                     }
                                   />
 
@@ -2053,7 +2216,7 @@ export default function CourseCurriculumPage() {
                                       Detected type:
                                       <MediaTypeBadge
                                         type={inferMediaTypeFromUrl(
-                                          lessonDraftForm.mediaUrl.trim()
+                                          lessonDraftForm.mediaUrl.trim(),
                                         )}
                                       />
                                     </p>
@@ -2063,7 +2226,8 @@ export default function CourseCurriculumPage() {
                             </div>
 
                             {uploading &&
-                              creatingLessonSectionId === section.id && (
+                              creatingLessonSectionId ===
+                                section.id && (
                                 <p className="text-sm text-blue-600">
                                   {uploading.progressText}
                                 </p>
@@ -2075,11 +2239,13 @@ export default function CourseCurriculumPage() {
                                 size="sm"
                                 disabled={
                                   !canEditCourse ||
-                                  creatingLessonSectionId === section.id
+                                  creatingLessonSectionId ===
+                                    section.id
                                 }
                               >
                                 <PlusCircle className="mr-2 h-4 w-4" />
-                                {creatingLessonSectionId === section.id
+                                {creatingLessonSectionId ===
+                                section.id
                                   ? "Creating..."
                                   : "Create Lesson"}
                               </Button>
@@ -2090,7 +2256,8 @@ export default function CourseCurriculumPage() {
                                 variant="outline"
                                 onClick={closeLessonForm}
                                 disabled={
-                                  creatingLessonSectionId === section.id
+                                  creatingLessonSectionId ===
+                                  section.id
                                 }
                               >
                                 Cancel
@@ -2102,7 +2269,10 @@ export default function CourseCurriculumPage() {
                         <div className="space-y-3">
                           {section.lessons?.length ? (
                             section.lessons.map(
-                              (lesson: Lesson, lessonIndex: number) => {
+                              (
+                                lesson: Lesson,
+                                lessonIndex: number,
+                              ) => {
                                 const lessonFiles =
                                   uploadedFiles[lesson.id] ?? [];
 
@@ -2117,18 +2287,20 @@ export default function CourseCurriculumPage() {
                                           value={editLessonTitle}
                                           onChange={(event) =>
                                             setEditLessonTitle(
-                                              event.target.value
+                                              event.target.value,
                                             )
                                           }
                                           disabled={!canEditCourse}
-                                          maxLength={255}
+                                          maxLength={190}
                                         />
 
                                         <Textarea
-                                          value={editLessonDescription}
+                                          value={
+                                            editLessonDescription
+                                          }
                                           onChange={(event) =>
                                             setEditLessonDescription(
-                                              event.target.value
+                                              event.target.value,
                                             )
                                           }
                                           disabled={!canEditCourse}
@@ -2142,7 +2314,7 @@ export default function CourseCurriculumPage() {
                                             onClick={() =>
                                               handleUpdateLesson(
                                                 section.id,
-                                                lesson.id
+                                                lesson.id,
                                               )
                                             }
                                             disabled={!canEditCourse}
@@ -2168,7 +2340,8 @@ export default function CourseCurriculumPage() {
                                           <div>
                                             <div className="flex flex-wrap items-center gap-2">
                                               <p className="font-medium">
-                                                Lesson {lessonIndex + 1}:{" "}
+                                                Lesson{" "}
+                                                {lessonIndex + 1}:{" "}
                                                 {lesson.title}
                                               </p>
 
@@ -2185,7 +2358,8 @@ export default function CourseCurriculumPage() {
                                               </Badge>
 
                                               <Badge variant="outline">
-                                                {lessonFiles.length} media
+                                                {lessonFiles.length}{" "}
+                                                media
                                               </Badge>
                                             </div>
 
@@ -2209,7 +2383,7 @@ export default function CourseCurriculumPage() {
                                                 moveLesson(
                                                   section.id,
                                                   lesson.id,
-                                                  "up"
+                                                  "up",
                                                 )
                                               }
                                             >
@@ -2222,15 +2396,16 @@ export default function CourseCurriculumPage() {
                                               variant="outline"
                                               disabled={
                                                 lessonIndex ===
-                                                  (section.lessons?.length ??
-                                                    0) -
-                                                    1 || !canEditCourse
+                                                  (section.lessons
+                                                    ?.length ?? 0) -
+                                                    1 ||
+                                                !canEditCourse
                                               }
                                               onClick={() =>
                                                 moveLesson(
                                                   section.id,
                                                   lesson.id,
-                                                  "down"
+                                                  "down",
                                                 )
                                               }
                                             >
@@ -2244,10 +2419,12 @@ export default function CourseCurriculumPage() {
                                               onClick={() =>
                                                 handleToggleLesson(
                                                   section.id,
-                                                  lesson
+                                                  lesson,
                                                 )
                                               }
-                                              disabled={!canEditCourse}
+                                              disabled={
+                                                !canEditCourse
+                                              }
                                             >
                                               {lesson.isActive
                                                 ? "Disable"
@@ -2259,9 +2436,13 @@ export default function CourseCurriculumPage() {
                                               type="button"
                                               variant="outline"
                                               onClick={() =>
-                                                startEditLesson(lesson)
+                                                startEditLesson(
+                                                  lesson,
+                                                )
                                               }
-                                              disabled={!canEditCourse}
+                                              disabled={
+                                                !canEditCourse
+                                              }
                                             >
                                               Edit
                                             </Button>
@@ -2273,10 +2454,12 @@ export default function CourseCurriculumPage() {
                                               onClick={() =>
                                                 handleDeleteLesson(
                                                   section.id,
-                                                  lesson
+                                                  lesson,
                                                 )
                                               }
-                                              disabled={!canEditCourse}
+                                              disabled={
+                                                !canEditCourse
+                                              }
                                             >
                                               Delete
                                             </Button>
@@ -2291,9 +2474,10 @@ export default function CourseCurriculumPage() {
                                               </p>
 
                                               <p className="text-xs text-zinc-500">
-                                                Upload a file or paste a media
-                                                URL. Existing media can be edited
-                                                or deleted.
+                                                Upload a file or paste
+                                                a media URL. Existing
+                                                media can be edited or
+                                                deleted.
                                               </p>
                                             </div>
 
@@ -2305,7 +2489,7 @@ export default function CourseCurriculumPage() {
                                                 onClick={() =>
                                                   refreshLessonFiles(
                                                     section.id,
-                                                    lesson.id
+                                                    lesson.id,
                                                   )
                                                 }
                                                 disabled={
@@ -2323,7 +2507,6 @@ export default function CourseCurriculumPage() {
                                               <label className="inline-flex cursor-pointer items-center justify-center rounded-md border bg-white px-3 py-2 text-sm font-medium hover:bg-zinc-50">
                                                 <FileUp className="mr-2 h-4 w-4" />
                                                 Upload File
-
                                                 <input
                                                   type="file"
                                                   className="hidden"
@@ -2332,19 +2515,23 @@ export default function CourseCurriculumPage() {
                                                     uploading?.lessonId ===
                                                       lesson.id
                                                   }
-                                                  onChange={(event) => {
+                                                  onChange={(
+                                                    event,
+                                                  ) => {
                                                     const file =
-                                                      event.target.files?.[0];
+                                                      event.target
+                                                        .files?.[0];
 
                                                     if (file) {
                                                       handleSelectLessonFile(
                                                         section.id,
                                                         lesson,
-                                                        file
+                                                        file,
                                                       );
                                                     }
 
-                                                    event.target.value = "";
+                                                    event.target.value =
+                                                      "";
                                                   }}
                                                 />
                                               </label>
@@ -2359,17 +2546,19 @@ export default function CourseCurriculumPage() {
                                               savingMediaLinkLessonId ===
                                               lesson.id
                                             }
-                                            form={getMediaLinkForm(lesson.id)}
+                                            form={getMediaLinkForm(
+                                              lesson.id,
+                                            )}
                                             onUpdate={(patch) =>
                                               updateMediaLinkForm(
                                                 lesson.id,
-                                                patch
+                                                patch,
                                               )
                                             }
                                             onSubmit={() =>
                                               handleAttachLessonMediaUrl(
                                                 section.id,
-                                                lesson
+                                                lesson,
                                               )
                                             }
                                           />
@@ -2383,99 +2572,109 @@ export default function CourseCurriculumPage() {
 
                                           {lessonFiles.length ? (
                                             <div className="mt-3 space-y-2">
-                                              {lessonFiles.map((file) => (
-                                                <div
-                                                  key={file.id}
-                                                  className="rounded-md border bg-white px-3 py-2 text-sm"
-                                                >
-                                                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                                                    <div className="min-w-0">
-                                                      <div className="flex flex-wrap items-center gap-2">
-                                                        <p className="max-w-md truncate font-medium">
-                                                          {file.filename ||
-                                                            "Lesson media"}
+                                              {lessonFiles.map(
+                                                (file) => (
+                                                  <div
+                                                    key={file.id}
+                                                    className="rounded-md border bg-white px-3 py-2 text-sm"
+                                                  >
+                                                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                                      <div className="min-w-0">
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                          <p className="max-w-md truncate font-medium">
+                                                            {file.filename ||
+                                                              "Lesson media"}
+                                                          </p>
+
+                                                          <MediaTypeBadge
+                                                            type={
+                                                              file.type as LessonMediaType
+                                                            }
+                                                          />
+                                                        </div>
+
+                                                        <p className="mt-1 truncate text-xs text-zinc-500">
+                                                          {file.url}
                                                         </p>
 
-                                                        <MediaTypeBadge
-                                                          type={
-                                                            file.type as LessonMediaType
-                                                          }
-                                                        />
+                                                        <p className="mt-1 text-xs text-zinc-500">
+                                                          {file.mimeType ||
+                                                            "No MIME type"}{" "}
+                                                          ·{" "}
+                                                          {formatFileSize(
+                                                            file.sizeInBytes,
+                                                          )}
+                                                        </p>
                                                       </div>
 
-                                                      <p className="mt-1 truncate text-xs text-zinc-500">
-                                                        {file.url}
-                                                      </p>
+                                                      <div className="flex shrink-0 flex-wrap gap-2">
+                                                        <Button
+                                                          type="button"
+                                                          size="sm"
+                                                          variant="outline"
+                                                          onClick={() =>
+                                                            window.open(
+                                                              file.url,
+                                                              "_blank",
+                                                              "noopener,noreferrer",
+                                                            )
+                                                          }
+                                                        >
+                                                          <ExternalLink className="mr-2 h-4 w-4" />
+                                                          Open
+                                                        </Button>
 
-                                                      <p className="mt-1 text-xs text-zinc-500">
-                                                        {file.mimeType ||
-                                                          "No MIME type"}{" "}
-                                                        ·{" "}
-                                                        {formatFileSize(
-                                                          file.sizeInBytes
-                                                        )}
-                                                      </p>
-                                                    </div>
-
-                                                    <div className="flex shrink-0 flex-wrap gap-2">
-                                                      <Button
-                                                        type="button"
-                                                        size="sm"
-                                                        variant="outline"
-                                                        onClick={() =>
-                                                          window.open(
-                                                            file.url,
-                                                            "_blank",
-                                                            "noopener,noreferrer"
-                                                          )
-                                                        }
-                                                      >
-                                                        <ExternalLink className="mr-2 h-4 w-4" />
-                                                        Open
-                                                      </Button>
-
-                                                      <Button
-                                                        type="button"
-                                                        size="sm"
-                                                        variant="outline"
-                                                        onClick={() =>
-                                                          startEditFile(
-                                                            section.id,
-                                                            lesson.id,
-                                                            file
-                                                          )
-                                                        }
-                                                        disabled={!canEditCourse}
-                                                      >
-                                                        <Edit className="mr-2 h-4 w-4" />
-                                                        Edit
-                                                      </Button>
-
-                                                      <Button
-                                                        type="button"
-                                                        size="sm"
-                                                        variant="destructive"
-                                                        onClick={() =>
-                                                          setFileToDelete({
-                                                            sectionId:
+                                                        <Button
+                                                          type="button"
+                                                          size="sm"
+                                                          variant="outline"
+                                                          onClick={() =>
+                                                            startEditFile(
                                                               section.id,
-                                                            lessonId: lesson.id,
-                                                            file,
-                                                          })
-                                                        }
-                                                        disabled={!canEditCourse}
-                                                      >
-                                                        <Trash2 className="mr-2 h-4 w-4" />
-                                                        Delete
-                                                      </Button>
+                                                              lesson.id,
+                                                              file,
+                                                            )
+                                                          }
+                                                          disabled={
+                                                            !canEditCourse
+                                                          }
+                                                        >
+                                                          <Edit className="mr-2 h-4 w-4" />
+                                                          Edit
+                                                        </Button>
+
+                                                        <Button
+                                                          type="button"
+                                                          size="sm"
+                                                          variant="destructive"
+                                                          onClick={() =>
+                                                            setFileToDelete(
+                                                              {
+                                                                sectionId:
+                                                                  section.id,
+                                                                lessonId:
+                                                                  lesson.id,
+                                                                file,
+                                                              },
+                                                            )
+                                                          }
+                                                          disabled={
+                                                            !canEditCourse
+                                                          }
+                                                        >
+                                                          <Trash2 className="mr-2 h-4 w-4" />
+                                                          Delete
+                                                        </Button>
+                                                      </div>
                                                     </div>
                                                   </div>
-                                                </div>
-                                              ))}
+                                                ),
+                                              )}
                                             </div>
                                           ) : (
                                             <p className="mt-2 text-xs text-zinc-500">
-                                              No media files for this lesson yet.
+                                              No media files for this
+                                              lesson yet.
                                             </p>
                                           )}
                                         </div>
@@ -2483,7 +2682,7 @@ export default function CourseCurriculumPage() {
                                     )}
                                   </div>
                                 );
-                              }
+                              },
                             )
                           ) : (
                             <p className="text-sm text-muted-foreground">
@@ -2525,13 +2724,18 @@ export default function CourseCurriculumPage() {
               </button>
             </div>
 
-            <form onSubmit={handleCreateSection} className="space-y-4">
+            <form
+              onSubmit={handleCreateSection}
+              className="space-y-4"
+            >
               <Input
                 value={sectionTitle}
-                onChange={(event) => setSectionTitle(event.target.value)}
+                onChange={(event) =>
+                  setSectionTitle(event.target.value)
+                }
                 placeholder="Section title"
                 required
-                maxLength={255}
+                maxLength={190}
                 disabled={creatingSection || !canEditCourse}
               />
 
@@ -2542,12 +2746,12 @@ export default function CourseCurriculumPage() {
                     setSectionDescription(event.target.value)
                   }
                   placeholder="Section description"
-                  maxLength={255}
+                  maxLength={190}
                   disabled={creatingSection || !canEditCourse}
                 />
 
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {sectionDescription.length}/255 characters
+                  {sectionDescription.length}/190 characters
                 </p>
               </div>
 
@@ -2600,7 +2804,9 @@ export default function CourseCurriculumPage() {
 
             <div className="space-y-4">
               <div>
-                <label className="mb-1 block text-sm font-medium">URL</label>
+                <label className="mb-1 block text-sm font-medium">
+                  URL
+                </label>
                 <Input
                   value={editingFile.form.url}
                   onChange={(event) =>
@@ -2617,7 +2823,9 @@ export default function CourseCurriculumPage() {
                 <Input
                   value={editingFile.form.filename}
                   onChange={(event) =>
-                    updateEditingFileForm({ filename: event.target.value })
+                    updateEditingFileForm({
+                      filename: event.target.value,
+                    })
                   }
                   disabled={savingFileEdit}
                 />
@@ -2625,7 +2833,9 @@ export default function CourseCurriculumPage() {
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <label className="mb-1 block text-sm font-medium">Type</label>
+                  <label className="mb-1 block text-sm font-medium">
+                    Type
+                  </label>
                   <select
                     value={editingFile.form.type}
                     onChange={(event) =>
@@ -2669,7 +2879,9 @@ export default function CourseCurriculumPage() {
                 <Input
                   value={editingFile.form.mimeType}
                   onChange={(event) =>
-                    updateEditingFileForm({ mimeType: event.target.value })
+                    updateEditingFileForm({
+                      mimeType: event.target.value,
+                    })
                   }
                   disabled={savingFileEdit}
                   placeholder="video/mp4, image/png, application/pdf..."
@@ -2769,7 +2981,8 @@ export default function CourseCurriculumPage() {
                 </h2>
 
                 <p className="mt-1 text-sm text-zinc-500">
-                  Check the selected file before uploading it to this lesson.
+                  Check the selected file before uploading it to this
+                  lesson.
                 </p>
               </div>
 
@@ -2807,7 +3020,8 @@ export default function CourseCurriculumPage() {
                   </p>
 
                   <p className="mt-1 text-xs text-zinc-500">
-                    This file type cannot be previewed. It will be uploaded as{" "}
+                    This file type cannot be previewed. It will be
+                    uploaded as{" "}
                     <strong>{pendingUpload.mediaType}</strong>.
                   </p>
                 </div>
@@ -2815,12 +3029,16 @@ export default function CourseCurriculumPage() {
 
               <div className="mt-4 space-y-1 text-sm text-zinc-600">
                 <p>
-                  <span className="font-medium text-zinc-900">Lesson:</span>{" "}
+                  <span className="font-medium text-zinc-900">
+                    Lesson:
+                  </span>{" "}
                   {pendingUpload.lesson.title}
                 </p>
 
                 <p>
-                  <span className="font-medium text-zinc-900">File:</span>{" "}
+                  <span className="font-medium text-zinc-900">
+                    File:
+                  </span>{" "}
                   {pendingUpload.file.name}
                 </p>
 
@@ -2832,7 +3050,9 @@ export default function CourseCurriculumPage() {
                 </p>
 
                 <p>
-                  <span className="font-medium text-zinc-900">Size:</span>{" "}
+                  <span className="font-medium text-zinc-900">
+                    Size:
+                  </span>{" "}
                   {formatFileSize(pendingUpload.file.size)}
                 </p>
               </div>
@@ -2874,8 +3094,9 @@ export default function CourseCurriculumPage() {
             </h2>
 
             <p className="mt-2 text-sm text-zinc-500">
-              This section will be removed from the course. Lessons inside this
-              section may also be removed depending on backend rules.
+              This section will be removed from the course. Lessons
+              inside this section may also be removed depending on
+              backend rules.
             </p>
 
             <div className="mt-4 rounded-lg border bg-zinc-50 p-3 text-sm">
@@ -2919,8 +3140,8 @@ export default function CourseCurriculumPage() {
             </h2>
 
             <p className="mt-2 text-sm text-zinc-500">
-              This lesson will be removed from the section. This action cannot
-              be undone.
+              This lesson will be removed from the section. This
+              action cannot be undone.
             </p>
 
             <div className="mt-4 rounded-lg border bg-zinc-50 p-3 text-sm">
@@ -2929,7 +3150,8 @@ export default function CourseCurriculumPage() {
               </p>
 
               <p className="mt-1 text-xs text-zinc-500">
-                {lessonToDelete.lesson.description || "No description"}
+                {lessonToDelete.lesson.description ||
+                  "No description"}
               </p>
             </div>
 
@@ -2976,7 +3198,10 @@ export default function CourseCurriculumPage() {
             </div>
 
             <div className="mt-6 flex justify-end">
-              <Button type="button" onClick={() => setSuccessMessage("")}>
+              <Button
+                type="button"
+                onClick={() => setSuccessMessage("")}
+              >
                 Close
               </Button>
             </div>
